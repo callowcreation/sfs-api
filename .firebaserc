@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "prod": "shoutouts-for-streamers",
+    "dev": "shoutoutsdev-38a1d"
+  },
+  "targets": {}
+}
