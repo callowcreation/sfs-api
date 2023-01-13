@@ -763,7 +763,7 @@ function getEnvironment() {
 }
 //Julie_HomeWithMyBookshelf
 function makeBotUrlPath() {
-	return getEnvironment() === 'dev' ? URLS.bot.dev : iStaged ? URLS.bot[production.staged] : URLS.bot[production.live];
+	return getEnvironment() === 'dev' ? URLS.bot.dev : iStaged ? URLS.bot.prod[production.staged] : URLS.bot.prod[production.live];
 }
 
 function attachEnvironment(message) {
