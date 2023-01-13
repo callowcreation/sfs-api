@@ -261,7 +261,7 @@ app.post('/v3/bits/move-up', async (req, res) => {
 
 			const moveUpRef = getMoveUpRef(channelId);
 
-			const timestamp = admin.database.ServerValue.TIMESTAMP;
+			const timestamp = serverTimestamp();
 			await moveUpRef.set({ timestamp });
 			const moved_ts = (await moveUpRef.child('timestamp').get()).val();
 
@@ -298,6 +298,32 @@ app.post('/v3/bits/move-up', async (req, res) => {
 	}
 });
 
+app.post('/v3/bits/move-up-expired', async (req, res) => {
+	const verified = verifyAndGetIds({ headers: req.headers });
+	if (verified) {
+
+		const moveUpRef = getMoveUpRef(verified.channelId);
+
+		const numChildren = (await moveUpRef.once('value')).numChildren();
+		if (numChildren > 0) {
+			await moveUpRef.remove();
+
+            const message = {
+                actionResponse: {
+                    ...verified
+                }
+            };
+            const result = await sendToPubsub(message, verified.channelId);
+			console.log({ result });
+		}
+
+		res.end();
+	} else {
+		console.error({ error: 'Invalid token for pin request' });
+		res.status(401).json(null);
+	}
+});
+
 app.post('/v3/bits/pin-to-top', async (req, res) => {
 	//res.set('Cache-Control', 'public, max-age=300, s-maxage=600');
 	const verified = verifyAndGetIds({ headers: req.headers });
@@ -311,7 +337,7 @@ app.post('/v3/bits/pin-to-top', async (req, res) => {
 			const pinToTopRef = getPinToTopRef(channelId);
 			const posted_bys = await getPostedBys(channelId);
 
-			const timestamp = admin.database.ServerValue.TIMESTAMP;
+			const timestamp = serverTimestamp();
 			const data = {
 				timestamp,
 				username: req.body.username,
@@ -674,6 +700,10 @@ function getKeyStoreRef() {
 	return firebaseApp.database().ref(`/key-store/tokens`);
 }
 
+function serverTimestamp() {
+    return admin.database.ServerValue ? admin.database.ServerValue.TIMESTAMP : Date.now();
+}
+
 function verifyAuthorization({ headers }) {
 	return headers['authorization'] === 'Basic ' + (Buffer.from(process.env.EXTENSION_CLIENT_ID + ':' + process.env.EXTENSION_SECRET).toString('base64'));
 }
@@ -718,7 +748,7 @@ function makeServerToken(channelId) {
 	const payload = {
 		exp: Math.floor(Date.now() / 1000) + serverTokenDurationSec,
 		channel_id: channelId,
-		user_id: process.env.EXTENSION_.owner.id,
+		user_id: process.env.EXTENSION_OWNER_ID,
 		role: 'external',
 		pubsub_perms: {
 			send: ['broadcast'],
