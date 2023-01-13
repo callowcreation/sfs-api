@@ -7,25 +7,32 @@ const fetch = require('node-fetch');
 const express = require('express');
 const cors = require('cors');
 
-const iStaged = true;
-const production = { staged: 0, live: 1 };
+const ENVIRONMENTS = {
+    DEV: 'dev',
+    PROD: 'prod',
+};
 
-const serviceAccount = iStaged
-	? require("./serviceAccountKeyDev.json")
-	: require("./serviceAccountKeyProd.json");
+const PRODUCTION = { 
+    STAGED: 0, 
+    LIVE: 1 
+};
 
 const URLS = {
-    api: {
-        dev: process.env.URLS_API_DEV,
-        prod: [process.env.URLS_API_PROD_STAGED, process.env.URLS_API_PROD_LIVE]
+    API: {
+        DEV: process.env.URLS_API_DEV,
+        PROD: [process.env.URLS_API_PROD_STAGED, process.env.URLS_API_PROD_LIVE]
     },
-    bot: {
-        dev: process.env.URLS_BOT_DEV,
-        prod: [process.env.URLS_BOT_PROD_STAGED, process.env.URLS_BOT_PROD_LIVE]
+    BOT: {
+        DEV: process.env.URLS_BOT_DEV,
+        PROD: [process.env.URLS_BOT_PROD_STAGED, process.env.URLS_BOT_PROD_LIVE]
     }
 };
 
-const databaseURL = iStaged ? URLS.api.prod[production.staged] : URLS.api.prod[production.live];
+const isStaged = true;
+
+const serviceAccount = isStaged ? require("./serviceAccountKeyDev.json") : require("./serviceAccountKeyProd.json");
+
+const databaseURL = isStaged ? URLS.API.PROD[PRODUCTION.STAGED] : URLS.API.PROD[PRODUCTION.LIVE];
 
 const botHeaders = {
 	'Content-Type': 'application/json',
@@ -759,16 +766,17 @@ function makeServerToken(channelId) {
 }
 
 function getEnvironment() {
-	return process.env.FUNCTIONS_EMULATOR ? 'dev' : 'prod';
+	return process.env.FUNCTIONS_EMULATOR ? ENVIRONMENTS.DEV : ENVIRONMENTS.PROD;
 }
 //Julie_HomeWithMyBookshelf
 function makeBotUrlPath() {
-	return getEnvironment() === 'dev' ? URLS.bot.dev : iStaged ? URLS.bot.prod[production.staged] : URLS.bot.prod[production.live];
+	return getEnvironment() === ENVIRONMENTS.DEV ? URLS.BOT.DEV : isStaged ? URLS.BOT.PROD[PRODUCTION.STAGED] : URLS.BOT.PROD[PRODUCTION.LIVE];
 }
 
 function attachEnvironment(message) {
 	message.environment = getEnvironment();
-	message.version = '0.3.1';
+    if(message.environment === ENVIRONMENTS.PROD) message.staged = isStaged;
+	message.version = process.env.EXTENSION_VERSION;
 	message.timestamp = Date.now();
 	return message;
 }
