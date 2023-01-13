@@ -5,26 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Function",
+            "name": "Attach",
             "port": 9229,
             "request": "attach",
             "skipFiles": [
                 "<node_internals>/**"
             ],
             "type": "node"
-        },
-        
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "Launch Pinger",
-            "program": "${workspaceFolder}\\pinger\\index.js"
-		},
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "Start Watcher",
-            "program": "${workspaceFolder}\\watcher\\app.js"
-		}
+        }
     ]
 }
