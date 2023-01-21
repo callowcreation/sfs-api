@@ -50,33 +50,21 @@ const app = express();
 app.use(cors({ origin: true }));
 
 
-app.get('/v3/auth-callback', async (req, res) => {
+app.post('/v3/api/user', async (req, res) => {
     console.log({ headers: req.headers });
+    console.log({ body: req.body });
 
-    const headers = {
-        'Authorization': 'Basic ' + (Buffer.from(CREDENTIALS.CLIENT_ID + ':' + CREDENTIALS.CLIENT_SECRET).toString('base64'))
-    };
-    const body = new URLSearchParams({
-        client_id: CREDENTIALS.CLIENT_ID,
-        client_secret: CREDENTIALS.CLIENT_SECRET,
-        code: req.query.code,
-        grant_type: 'authorization_code',
-        redirect_uri: CREDENTIALS.REDIRECT_URI
-    });
+    const token = await admin.auth().createCustomToken(req.body.id, req.body);
+    let record = await admin.auth().getUser(req.body.id);
+    if(!record) {
+        record = await admin.auth().createUser({
+            email: req.body.email,
+            uid: req.body.id,
+            displayName: req.body.display_name   
+        });
+    }
 
-    const json = await fetch('https://id.twitch.tv/oauth2/token', { method: 'POST', headers, body })
-        .then(r => r.json());
-
-    console.log(json);
-
-
-
-
-
-
-
-    res.status(200).json({ success: true, json: json });
-
+    res.json(token);
 });
 
 app.post('/v3/configuration', (req, res) => {
