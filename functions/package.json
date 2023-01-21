@@ -17,6 +17,7 @@
     "cors": "^2.8.5",
     "express": "^4.17.3",
     "firebase-admin": "^11.4.1",
+    "firebase-auth": "^0.1.2",
     "firebase-functions": "^4.2.0",
     "jsonwebtoken": "^9.0.0",
     "node-fetch": "^2.6.7"

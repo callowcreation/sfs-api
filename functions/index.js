@@ -51,20 +51,51 @@ app.use(cors({ origin: true }));
 
 
 app.post('/v3/api/user', async (req, res) => {
-    console.log({ headers: req.headers });
-    console.log({ body: req.body });
+    // console.log({ headers: req.headers });
+    // console.log({ body: req.body });
 
-    const token = await admin.auth().createCustomToken(req.body.id, req.body);
-    let record = await admin.auth().getUser(req.body.id);
-    if(!record) {
-        record = await admin.auth().createUser({
+    try {
+        await admin.auth().createUser({
             email: req.body.email,
             uid: req.body.id,
-            displayName: req.body.display_name   
-        });
+            displayName: req.body.display_name
+        }); 
+    } catch (error) {
+        if(error.message && error.message != 'The user with the provided uid already exists.') {
+            res.status(500).json(error.message ? error.message : 'Create User Failed');
+        }
     }
 
-    res.json(token);
+    try {
+        const token = await admin.auth().createCustomToken(req.body.id, req.body);
+        res.json(token);
+    } catch (error) {
+        res.status(500).json(error.message ? error.message : 'Create Custom Token Failed');
+    }
+});
+
+app.delete('/v3/api/user/:id', async (req, res) => {
+    // console.log({ headers: req.headers });
+    console.log(req.params);
+
+    try {
+        const idToken = req.headers.authorization.substring('Bearer '.length);
+        console.log({ idToken });
+        await admin.auth().verifyIdToken(idToken, true);
+    } catch (error) {
+        res.status(403).send(error.message ? error.message : 'Action Forbidden');
+        return;
+    }
+    try {
+        await admin.auth().deleteUser(req.params.id);
+        res.status(204).send();
+    } catch (error) {        
+        if(error.message && error.message != 'There is no user record corresponding to the provided identifier.') {
+            res.status(500).json(error.message ? error.message : 'Delete User Failed');
+        } else {
+            res.status(204).send();
+        }
+    }
 });
 
 app.post('/v3/configuration', (req, res) => {
