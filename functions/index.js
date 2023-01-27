@@ -117,7 +117,8 @@ app.get('/v3/api/embedded', async (req, res) => {
         if(settings) {
 
             const shoutouts = makeShoutoutsArray(await getChannelShoutouts(id));
-
+            if(shoutouts.length === 0) continue;
+            
             const users = [];
             users.push(`id=${id}`);
             users.push(...shoutouts.map(x => `login=${x}`));
