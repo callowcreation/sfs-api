@@ -114,16 +114,31 @@ app.get('/v3/api/embedded', async (req, res) => {
     while(++retries < 10) {
         const id = ids.pop();
         const settings = await getChannelSettings(id);
-        console.log({ settings });
         if(settings) {
-            const { data: [user] } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users: [`id=${id}`] });
-    
-            console.log({ user });
-            res.status(200).json({ user, settings });
+
+            const shoutouts = makeShoutoutsArray(await getChannelShoutouts(id));
+
+            const users = [];
+            users.push(`id=${id}`);
+            users.push(...shoutouts.map(x => `login=${x}`));
+            const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+
+            const featured = data.shift();
+            const posted_bys = await getPostedBys(id);
+            
+            const guests = [];
+            for (let i = 0; i < shoutouts.length; i++) {
+                const user = data.find(x => x.login === shoutouts[i]);
+                if(!user) continue;
+                user.posted_by = posted_bys[user.login];
+                guests.push(user);
+            }
+            
+            res.status(200).json({ featured, settings, guests });
             return;
         }
     }
-    res.status(404).json({ user: null, settings: null });
+    res.status(404).json({ user: null, settings: null, guests: [] });
 });
 
 
