@@ -60,9 +60,9 @@ app.post('/v3/api/user', async (req, res) => {
             email: req.body.email,
             uid: req.body.id,
             displayName: req.body.display_name
-        }); 
+        });
     } catch (error) {
-        if(error.message && error.message != 'The user with the provided uid already exists.') {
+        if (error.message && error.message != 'The user with the provided uid already exists.') {
             res.status(500).json(error.message ? error.message : 'Create User Failed');
         }
     }
@@ -90,13 +90,47 @@ app.delete('/v3/api/user/:id', async (req, res) => {
     try {
         await admin.auth().deleteUser(req.params.id);
         res.status(204).send();
-    } catch (error) {        
-        if(error.message && error.message != 'There is no user record corresponding to the provided identifier.') {
+    } catch (error) {
+        if (error.message && error.message != 'There is no user record corresponding to the provided identifier.') {
             res.status(500).json(error.message ? error.message : 'Delete User Failed');
         } else {
             res.status(204).send();
         }
     }
+});
+
+app.get('/v3/api/embedded/random', async (req, res) => {
+    const ids = await getChannelIds();
+    shuffle(ids);
+    res.status(200).json({ id: ids[0] });
+});
+
+
+app.get('/v3/api/embedded', async (req, res) => {
+    
+    const ids = await getChannelIds();
+    shuffle(ids);
+    let retries = 0;
+    while(++retries < 10) {
+        const id = ids.pop();
+        const settings = await getChannelSettings(id);
+        console.log({ settings });
+        if(settings) {
+            const { data: [user] } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users: [`id=${id}`] });
+    
+            console.log({ user });
+            res.status(200).json({ user, settings });
+            return;
+        }
+    }
+    res.status(404).json({ user: null, settings: null });
+});
+
+
+app.get('/v3/api/embedded/all', async (req, res) => {
+    const ids = await getChannelIds();
+    shuffle(ids);
+    res.status(200).json({ ids });
 });
 
 app.post('/v3/configuration', (req, res) => {
@@ -122,12 +156,7 @@ app.post('/v3/configuration/settings', async (req, res) => {
 app.get('/channels/ids', async (req, res) => {
     if (verifyAuthorization({ headers: req.headers })) {
         try {
-            const ids = [];
-            const snapshot = await getAllChannelsIdRef().once('value');
-            snapshot.forEach(child => {
-                const id = child.val();
-                ids.push(id);
-            });
+            const ids = await getChannelIds();
             res.json({ ids });
         } catch (error) {
             res.status(500).json({ success: false, body: req.body });
@@ -262,6 +291,16 @@ app.get('/v2/settings', async (req, res) => {
         });
     }
 });
+
+async function getChannelIds() {
+    const ids = [];
+    const snapshot = await getAllChannelsIdRef().once('value');
+    snapshot.forEach(child => {
+        const id = child.val();
+        ids.push(id);
+    });
+    return ids;
+}
 
 function getDefaultSettings() {
     return {
@@ -858,6 +897,24 @@ async function sendToPubsub(message, channelId) {
     } catch (error) {
         return error;
     }
+}
+
+function shuffle(array) {
+    let currentIndex = array.length, randomIndex;
+
+    // While there remain elements to shuffle.
+    while (currentIndex != 0) {
+
+        // Pick a remaining element.
+        randomIndex = Math.floor(Math.random() * currentIndex);
+        currentIndex--;
+
+        // And swap it with the current element.
+        [array[currentIndex], array[randomIndex]] = [
+            array[randomIndex], array[currentIndex]];
+    }
+
+    return array;
 }
 
 exports.app = functions.https.onRequest(app);
