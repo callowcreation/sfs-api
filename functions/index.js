@@ -107,18 +107,18 @@ app.get('/v3/api/embedded/random', async (req, res) => {
 
 
 app.get('/v3/api/embedded', async (req, res) => {
-    
+
     const ids = await getChannelIds();
     shuffle(ids);
     let retries = 0;
-    while(++retries < 10) {
+    while (++retries < 10) {
         const id = ids.pop();
         const settings = await getChannelSettings(id);
-        if(settings) {
+        if (settings) {
 
             const shoutouts = makeShoutoutsArray(await getChannelShoutouts(id));
-            if(shoutouts.length === 0) continue;
-            
+            if (shoutouts.length === 0) continue;
+
             const users = [];
             users.push(`id=${id}`);
             users.push(...shoutouts.map(x => `login=${x}`));
@@ -126,15 +126,15 @@ app.get('/v3/api/embedded', async (req, res) => {
 
             const featured = data.shift();
             const posted_bys = await getPostedBys(id);
-            
+
             const guests = [];
             for (let i = 0; i < shoutouts.length; i++) {
                 const user = data.find(x => x.login === shoutouts[i]);
-                if(!user) continue;
+                if (!user) continue;
                 user.posted_by = posted_bys[user.login];
                 guests.push(user);
             }
-            
+
             res.status(200).json({ featured, settings, guests });
             return;
         }
@@ -169,6 +169,45 @@ app.post('/v3/configuration/settings', async (req, res) => {
 });
 
 // Coming from Bot request
+app.get('/v3/channels/commands/:id', async (req, res) => {
+    if (verifyAuthorization({ headers: req.headers })) {
+        try {
+            const commands = await getChannelCommands(req.params.id);
+            if (commands.length === 0) {
+                commands.push(...['so', 'shoutout']);
+            }
+            res.json({ commands });
+        } catch (error) {
+            res.status(500).json({ success: false, body: req.body });
+        }
+    } else {
+        res.status(401).json({ success: false, body: req.body });
+    }
+});
+
+app.get('/v3/channels/behaviours/:id', async (req, res) => {
+    if (verifyAuthorization({ headers: req.headers })) {
+        try {
+            const settings = await getChannelSettings(req.params.id);
+
+            if (settings.commands.length === 0) {
+                settings.commands.push(...['so', 'shoutout']);
+            }
+
+            res.json({
+                'auto-shoutouts': settings['auto-shoutouts'],
+                'badge-vip': settings['badge-vip'],
+                'commands': settings.commands
+            });
+
+        } catch (error) {
+            res.status(500).json({ success: false, body: req.body });
+        }
+    } else {
+        res.status(401).json({ success: false, body: req.body });
+    }
+});
+
 app.get('/channels/ids', async (req, res) => {
     if (verifyAuthorization({ headers: req.headers })) {
         try {
@@ -208,7 +247,7 @@ app.post('/channels/remove', async (req, res) => {
 
         //await getAllChannelsRef().child(req.body.channelId).remove();
 
-        const idsRef = getAllChannelsIdRef();
+        const idsRef = getAllChannelIdsRef();
 
         const value = await idsRef.orderByValue().equalTo(req.body.channelId).once('value').then(snap => snap.val());
         if (value) {
@@ -274,7 +313,7 @@ app.get('/v2/channels/names', async (req, res) => {
     const ref = await getAllChannelsRef();
     const channelIds = await ref.once('value').then(snap => snap.val());
     const ids = makeChannelIdsArray(channelIds);
-    const idsRef = getAllChannelsIdRef();
+    const idsRef = getAllChannelIdsRef();
     for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
         await addChannelToIds(id, idsRef);
@@ -310,12 +349,23 @@ app.get('/v2/settings', async (req, res) => {
 
 async function getChannelIds() {
     const ids = [];
-    const snapshot = await getAllChannelsIdRef().once('value');
+    const snapshot = await getAllChannelIdsRef().once('value');
     snapshot.forEach(child => {
         const id = child.val();
         ids.push(id);
     });
     return ids;
+}
+
+
+async function getChannelCommands(channelId) {
+    const commands = [];
+    const snapshot = await getChannelCommandsRef(channelId).once('value');
+    snapshot.forEach(child => {
+        const command = child.val();
+        commands.push(command);
+    });
+    return commands;
 }
 
 function getDefaultSettings() {
@@ -326,7 +376,9 @@ function getDefaultSettings() {
         'auto-shoutouts': false,
         'enable-bits': true,
         'bits-tier': 'Tier 1',
-        'pin-days': 3
+        'pin-days': 3,
+        'badge-vip': true,
+        'commands': ['so', 'shoutout']
     };
 }
 
@@ -557,7 +609,7 @@ async function moveToChannelShoutout(channelId, username) {
 
 async function addChannelToIds(channel_id, ids_ref = null) {
     if (!ids_ref) {
-        ids_ref = getAllChannelsIdRef();
+        ids_ref = getAllChannelIdsRef();
     }
     const channelId = await ids_ref.orderByValue().equalTo(channel_id).once('value').then(snap => snap.val());
     if (!channelId) {
@@ -800,8 +852,12 @@ function getAllChannelsRef() {
     return firebaseApp.database().ref(`/`);
 }
 
-function getAllChannelsIdRef() {
+function getAllChannelIdsRef() {
     return firebaseApp.database().ref(`/channel_id`);
+}
+
+function getChannelCommandsRef(channelId) {
+    return firebaseApp.database().ref(`${channelId}/commands`);
 }
 
 function getPostedBysRef(channelId) {
