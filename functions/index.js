@@ -142,7 +142,6 @@ app.get('/v3/api/embedded', async (req, res) => {
     res.status(404).json({ user: null, settings: null, guests: [] });
 });
 
-
 app.get('/v3/api/embedded/all', async (req, res) => {
     const ids = await getChannelIds();
     shuffle(ids);
@@ -206,6 +205,35 @@ app.get('/v3/channels/behaviours/:id', async (req, res) => {
     } else {
         res.status(401).json({ success: false, body: req.body });
     }
+});
+
+
+app.get('/v3/api/dashboard/:id', async (req, res) => {
+
+    const shoutouts = makeShoutoutsArray(await getChannelShoutouts(req.params.id));
+    if (shoutouts.length === 0) {
+        res.status(404).json({ guests: [] });
+    }
+
+    const users = shoutouts.map(x => `login=${x}`);
+    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+
+    const posted_bys = await getPostedBys(req.params.id);
+
+    const statsRef = getStatsRef(req.params.id);
+    const guests = [];
+    for (let i = 0; i < shoutouts.length; i++) {
+        const user = data.find(x => x.login === shoutouts[i]);
+        if (!user) continue;
+        const timestamp = Object.values((await statsRef.child(`${user.login}/${posted_bys[user.login]}`).limitToLast(1).get()).val())[0];
+        user.posted = {
+            login: posted_bys[user.login],
+            timestamp: timestamp
+        };
+        guests.push(user);
+    }
+
+    res.status(200).json({ guests });
 });
 
 app.get('/channels/ids', async (req, res) => {
@@ -643,7 +671,7 @@ async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
         if (settings['auto-shoutouts'] === false) return;
     }
 
-    const statsRef = firebaseApp.database().ref(`${channelId}/stats`);
+    const statsRef = getStatsRef(channelId);
     const timestamp = Date.now();
     await statsRef.child(`${username}/${posted_by}`).push(timestamp);
 
@@ -878,6 +906,10 @@ function getMoveUpRef(channelId) {
 
 function getPinToTopRef(channelId) {
     return firebaseApp.database().ref(`${channelId}/pin-to-top`);
+}
+
+function getStatsRef(channelId) {
+    return firebaseApp.database().ref(`${channelId}/stats`);
 }
 
 function getKeyStoreRef() {
