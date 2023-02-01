@@ -188,7 +188,7 @@ app.get('/v3/api/:id', async (req, res) => {
                         snap.forEach(child => {
                             const item = child.val();
                             const posted = [];
-                            
+
                             let total = 0;
                             let min = Infinity;
                             let max = 0;
@@ -202,7 +202,7 @@ app.get('/v3/api/:id', async (req, res) => {
                                 max = Math.max(max, length);
                                 posted.push({ login: login, timestamps: [...timestamps] });
                             }
-                        
+
                             items.push({ login: child.key, posted, total, min, max });
                         });
                         return items;
@@ -878,7 +878,7 @@ async function updateChannelSettings({ headers, body }) {
         }
         console.log({ settings: body.settings });
         await getChannelSettingsRef(channelId).update(body.settings);
-        await sendToPubsub({ settingsResponse: { settings: body.settings } }, channelId);
+        //await sendToPubsub({ settingsResponse: { settings: body.settings } }, channelId);
     }
 }
 
@@ -1094,3 +1094,19 @@ function shuffle(array) {
 }
 
 exports.app = functions.https.onRequest(app);
+
+
+function updateSettings(change, context) {
+    if (!change.after.exists()) return null;
+
+    try {
+        return sendToPubsub({ settingsResponse: { settings: change.after.val() } }, context.params.id);
+    } catch (err) {
+        console.error(err);
+        return null;
+    }
+}
+
+exports.updateSettings = functions.database
+    .ref('/{id}/settings')
+    .onUpdate(updateSettings);
