@@ -142,30 +142,90 @@ app.get('/v3/api/embedded', async (req, res) => {
     res.status(404).json({ user: null, settings: null, guests: [] });
 });
 
-app.get('/v3/api/embedded/all', async (req, res) => {
-    const ids = await getChannelIds();
-    shuffle(ids);
-    res.status(200).json({ ids });
-});
+app.get('/v3/api/:id', async (req, res) => {
+    const keys = Object.keys(req.query);
+    console.log({ keys });
 
-app.post('/v3/configuration', (req, res) => {
-    console.log({ headers: req.headers });
-    res.status(200).json({ success: true, body: req.body });
-});
+    const payload = {};
+    for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
 
-app.get('/v3/configuration/settings/default', (req, res) => {
-    res.status(200).json({ settings: getDefaultSettings() });
-});
+        switch (key) {
+            case 'settings': {
+                const settings = await getChannelSettings(req.params.id);
+                payload[key] = settings;
+            } break;
+            case 'featured': {
+                const users = [];
+                users.push(`id=${req.params.id}`);
+                const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+                const featured = data.shift();
+                payload[key] = featured;
+            } break;
+            case 'guests': {
+                const shoutouts = makeShoutoutsArray(await getChannelShoutouts(req.params.id));
+                if (shoutouts.length === 0) continue;
+    
+                const users = [];
+                users.push(...shoutouts.map(x => `login=${x}`));
+                const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+    
+                const posted_bys = await getPostedBys(req.params.id);
+    
+                const guests = [];
+                for (let i = 0; i < shoutouts.length; i++) {
+                    const user = data.find(x => x.login === shoutouts[i]);
+                    if (!user) continue;
+                    user.posted_by = posted_bys[user.login];
+                    guests.push(user);
+                }
+                payload[key] = guests;
+            } break;
 
-app.post('/v3/configuration/settings', async (req, res) => {
-    //if (verifyAuthorization({ headers: req.headers })) {
-    if (true) {
-        const settings = await getChannelSettings(req.body.channelId);
-        res.json({ settings });
-    } else {
-        res.status(401).end();
+            default:
+                break;
+        }
     }
+
+    res.status(200).json(payload);
 });
+
+app.get('/v3/api/configuration', async (req, res) => {
+    console.log({ headers: req.headers });
+
+    try {
+        const idToken = req.headers.authorization.substring('Bearer '.length);
+        console.log({ idToken });
+        await admin.auth().verifyIdToken(idToken, true);
+    } catch (error) {
+        res.status(403).send(error.message ? error.message : 'Action Forbidden');
+        return;
+    }
+
+    const shoutouts = makeShoutoutsArray(await getChannelShoutouts(id));
+    if (shoutouts.length === 0) {
+        res.status(404).end();
+        return;
+    }
+
+    const users = [];
+    users.push(`id=${id}`);
+    users.push(...shoutouts.map(x => `login=${x}`));
+    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+
+    const posted_bys = await getPostedBys(id);
+
+    const guests = [];
+    for (let i = 0; i < shoutouts.length; i++) {
+        const user = data.find(x => x.login === shoutouts[i]);
+        if (!user) continue;
+        user.posted_by = posted_bys[user.login];
+        guests.push(user);
+    }
+
+    res.status(200).json({ guests });
+});
+
 
 // Coming from Bot request
 app.get('/v3/channels/commands/:id', async (req, res) => {
@@ -206,7 +266,6 @@ app.get('/v3/channels/behaviours/:id', async (req, res) => {
         res.status(401).json({ success: false, body: req.body });
     }
 });
-
 
 app.get('/v3/api/dashboard/:id', async (req, res) => {
 
