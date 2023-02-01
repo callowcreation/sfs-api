@@ -165,13 +165,13 @@ app.get('/v3/api/:id', async (req, res) => {
             case 'guests': {
                 const shoutouts = makeShoutoutsArray(await getChannelShoutouts(req.params.id));
                 if (shoutouts.length === 0) continue;
-    
+
                 const users = [];
                 users.push(...shoutouts.map(x => `login=${x}`));
                 const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
-    
+
                 const posted_bys = await getPostedBys(req.params.id);
-    
+
                 const guests = [];
                 for (let i = 0; i < shoutouts.length; i++) {
                     const user = data.find(x => x.login === shoutouts[i]);
@@ -180,6 +180,35 @@ app.get('/v3/api/:id', async (req, res) => {
                     guests.push(user);
                 }
                 payload[key] = guests;
+            } break;
+            case 'statistics': {
+                const statistics = await firebaseApp.database().ref(`${req.params.id}/stats`).once('value')
+                    .then(snap => {
+                        const items = [];
+                        snap.forEach(child => {
+                            const item = child.val();
+                            const posted = [];
+                            
+                            let total = 0;
+                            let min = Infinity;
+                            let max = 0;
+
+
+                            for (const login in item) {
+                                const timestamps = Object.keys(item[login]).map(x => item[login][x]);
+                                const length = [...timestamps].length;
+                                total += length;
+                                min = Math.min(min, length);
+                                max = Math.max(max, length);
+                                posted.push({ login: login, timestamps: [...timestamps] });
+                            }
+                        
+                            items.push({ login: child.key, posted, total, min, max });
+                        });
+                        return items;
+                    });
+
+                payload[key] = statistics;
             } break;
 
             default:
@@ -764,22 +793,6 @@ async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
             await shoutoutsRef.child(csnap.key).remove();
         });
     }
-
-    /*const stats = await firebaseApp.database().ref(`${channelId}/stats`).once('value')
-        .then(snap => {
-            const values = [];
-            snap.forEach(child => {
-                const item = child.val();
-                for (const username in item) {
-                    const keys = Object.keys(item[username]);
-                    const timestamps = keys.map(x => item[username][x]);
-                    item[username] = [...timestamps];
-                }
-                values[child.key] = item;
-            });
-            console.log(values);
-            return values;
-        });*/
 
     // new for smaller data send to pubsub
     const channelShoutouts = await getChannelShoutouts(channelId);
