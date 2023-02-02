@@ -50,7 +50,6 @@ const app = express();
 
 app.use(cors({ origin: true }));
 
-
 app.post('/v3/api/user', async (req, res) => {
     // console.log({ headers: req.headers });
     // console.log({ body: req.body });
@@ -142,7 +141,7 @@ app.get('/v3/api/embedded', async (req, res) => {
     res.status(404).json({ user: null, settings: null, guests: [] });
 });
 
-app.get('/v3/api/:id', async (req, res) => {
+app.get('/v3/api/common/:id', async (req, res) => {
     const keys = Object.keys(req.query);
     console.log({ keys });
 
@@ -217,6 +216,20 @@ app.get('/v3/api/:id', async (req, res) => {
     }
 
     res.status(200).json(payload);
+});
+
+app.get('/v3/api/products', async (req, res) => {
+    try {
+        const idToken = req.headers.authorization.substring('Bearer '.length);
+        console.log({ idToken });
+        await admin.auth().verifyIdToken(idToken, true);
+    } catch (error) {
+        res.status(403).send(error.message ? error.message : 'Action Forbidden');
+        return;
+    }
+
+    const products = await getProducts();
+    res.status(200).json({ products });
 });
 
 app.get('/v3/api/configuration', async (req, res) => {
@@ -473,6 +486,16 @@ async function getChannelIds() {
     return ids;
 }
 
+async function getProducts() {
+    const products = [];
+    const snapshot = await globalProductsRef().once('value');
+    snapshot.forEach(child => {
+        const product = child.val();
+        products.push(product);
+    });
+    return products;
+}
+
 
 async function getChannelCommands(channelId) {
     const commands = [];
@@ -696,7 +719,7 @@ app.post('/v3/bits/pin-to-top-expired', async (req, res) => {
 app.post('/v3/products', async (req, res) => {
     const verified = verifyAndGetIds({ headers: req.headers });
     if (verified) {
-        const productsRef = globalProductsRef(verified.channelId);
+        const productsRef = globalProductsRef();
         await productsRef.set(req.body.products);
         res.end();
     } else {
