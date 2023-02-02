@@ -363,7 +363,7 @@ app.post('/channels/remove', async (req, res) => {
 
         //await getAllChannelsRef().child(req.body.channelId).remove();
 
-        const idsRef = getAllChannelIdsRef();
+        const idsRef = globalChannelIdsRef();
 
         const value = await idsRef.orderByValue().equalTo(req.body.channelId).once('value').then(snap => snap.val());
         if (value) {
@@ -429,7 +429,7 @@ app.get('/v2/channels/names', async (req, res) => {
     const ref = await getAllChannelsRef();
     const channelIds = await ref.once('value').then(snap => snap.val());
     const ids = makeChannelIdsArray(channelIds);
-    const idsRef = getAllChannelIdsRef();
+    const idsRef = globalChannelIdsRef();
     for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
         await addChannelToIds(id, idsRef);
@@ -465,7 +465,7 @@ app.get('/v2/settings', async (req, res) => {
 
 async function getChannelIds() {
     const ids = [];
-    const snapshot = await getAllChannelIdsRef().once('value');
+    const snapshot = await globalChannelIdsRef().once('value');
     snapshot.forEach(child => {
         const id = child.val();
         ids.push(id);
@@ -692,6 +692,19 @@ app.post('/v3/bits/pin-to-top-expired', async (req, res) => {
         res.status(401).json(null);
     }
 });
+
+app.post('/v3/products', async (req, res) => {
+    const verified = verifyAndGetIds({ headers: req.headers });
+    if (verified) {
+        const productsRef = globalProductsRef(verified.channelId);
+        await productsRef.set(req.body.products);
+        res.end();
+    } else {
+        console.error({ error: 'Invalid token for pin request' });
+        res.status(401).json(null);
+    }
+});
+
 // v3 endpoints - END
 
 async function moveToChannelShoutout(channelId, username) {
@@ -725,7 +738,7 @@ async function moveToChannelShoutout(channelId, username) {
 
 async function addChannelToIds(channel_id, ids_ref = null) {
     if (!ids_ref) {
-        ids_ref = getAllChannelIdsRef();
+        ids_ref = globalChannelIdsRef();
     }
     const channelId = await ids_ref.orderByValue().equalTo(channel_id).once('value').then(snap => snap.val());
     if (!channelId) {
@@ -952,9 +965,9 @@ function getAllChannelsRef() {
     return firebaseApp.database().ref(`/`);
 }
 
-function getAllChannelIdsRef() {
-    return firebaseApp.database().ref(`/channel_id`);
-}
+// function getAllChannelIdsRef() {
+//     return firebaseApp.database().ref(`/channel_id`);
+// }
 
 function getChannelCommandsRef(channelId) {
     return firebaseApp.database().ref(`${channelId}/commands`);
@@ -982,6 +995,14 @@ function getPinToTopRef(channelId) {
 
 function getStatsRef(channelId) {
     return firebaseApp.database().ref(`${channelId}/stats`);
+}
+
+function globalChannelIdsRef() {
+    return firebaseApp.database().ref(`_global/v3/channel_id`);
+}
+
+function globalProductsRef() {
+    return firebaseApp.database().ref(`_global/v3/products`);
 }
 
 function getKeyStoreRef() {
