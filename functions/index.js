@@ -98,11 +98,11 @@ app.delete('/v3/api/user/:id', async (req, res) => {
     }
 });
 
-app.get('/v3/api/embedded/random', async (req, res) => {
-    const ids = await getChannelIds();
-    shuffle(ids);
-    res.status(200).json({ id: ids[0] });
-});
+// app.get('/v3/api/embedded/random', async (req, res) => {
+//     const ids = await getChannelIds();
+//     shuffle(ids);
+//     res.status(200).json({ id: ids[0] });
+// });
 
 
 app.get('/v3/api/embedded', async (req, res) => {
@@ -266,6 +266,31 @@ app.get('/v3/api/configuration', async (req, res) => {
     }
 
     res.status(200).json({ guests });
+});
+
+app.delete('/v3/api/shoutouts/:id', async (req, res) => {
+    // console.log({ headers: req.headers });
+    console.log(req.query);
+
+    try {
+        const idToken = req.headers.authorization.substring('Bearer '.length);
+        console.log({ idToken });
+        await admin.auth().verifyIdToken(idToken, true);
+    } catch (error) {
+        res.status(403).send(error.message ? error.message : 'Action Forbidden');
+        return;
+    }
+
+    Object.values(req.query).forEach(async v => {
+        await getPostedBysRef(req.params.id).child(v).remove();
+        await deleteChannelShoutout(req.params.id, v);
+    });
+
+    /*
+    ------------------------------------------- SEND TO PUBSUB -------------------------------------------
+    */
+
+    res.status(200).json({ params: req.params, query: req.query });
 });
 
 
@@ -1151,6 +1176,24 @@ function updateSettings(change, context) {
     }
 }
 
+function deleteShoutouts(change, context) {
+    // if (!change.after.exists()) return null;
+    const deleted = change.val();
+
+    console.log({ del_id: context.params.id, 'deleted': `--- ${JSON.stringify(deleted)} ---` });
+    return null;
+
+    // try {
+    //     return sendToPubsub({ settingsResponse: { settings: change.after.val() } }, context.params.id);
+    // } catch (err) {
+    //     console.error(err);
+    //     return null;
+    // }
+}
 exports.updateSettings = functions.database
     .ref('/{id}/settings')
     .onUpdate(updateSettings);
+
+exports.deleteShoutouts = functions.database
+    .ref('/{id}/shoutouts')
+    .onDelete(deleteShoutouts);
