@@ -74,26 +74,22 @@ app.post('/v3/api/user', async (req, res) => {
     }
 });
 
-app.delete('/v3/api/user/:id', async (req, res) => {
+app.delete('/v3/api/user', async (req, res) => {
     // console.log({ headers: req.headers });
-    console.log(req.params);
+    // console.log(req.params);
 
     try {
         const idToken = req.headers.authorization.substring('Bearer '.length);
-        console.log({ idToken });
-        await admin.auth().verifyIdToken(idToken, true);
-    } catch (error) {
-        res.status(403).send(error.message ? error.message : 'Action Forbidden');
-        return;
-    }
-    try {
-        await admin.auth().deleteUser(req.params.id);
-        res.status(204).send();
+        const decoded = await admin.auth().verifyIdToken(idToken, true);
+        console.log({ idToken, decoded });
+
+        await admin.auth().deleteUser(decoded.id);
+        res.status(204).end();
     } catch (error) {
         if (error.message && error.message != 'There is no user record corresponding to the provided identifier.') {
             res.status(500).json(error.message ? error.message : 'Delete User Failed');
         } else {
-            res.status(204).send();
+            res.status(403).send(error.message ? error.message : 'Action Forbidden');
         }
     }
 });
@@ -115,7 +111,7 @@ app.get('/v3/api/embedded', async (req, res) => {
         const settings = await getChannelSettings(id);
         if (settings) {
 
-            const shoutouts = makeShoutoutsArray(await getChannelShoutouts(id));
+            const shoutouts = arrayFromVal(await getChannelShoutouts(id));
             if (shoutouts.length === 0) continue;
 
             const users = [];
@@ -162,7 +158,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                 payload[key] = featured;
             } break;
             case 'guests': {
-                const shoutouts = makeShoutoutsArray(await getChannelShoutouts(req.params.id));
+                const shoutouts = arrayFromVal(await getChannelShoutouts(req.params.id));
                 if (shoutouts.length === 0) continue;
 
                 const users = [];
@@ -244,7 +240,7 @@ app.get('/v3/api/configuration', async (req, res) => {
         return;
     }
 
-    const shoutouts = makeShoutoutsArray(await getChannelShoutouts(id));
+    const shoutouts = arrayFromVal(await getChannelShoutouts(id));
     if (shoutouts.length === 0) {
         res.status(404).end();
         return;
@@ -268,31 +264,78 @@ app.get('/v3/api/configuration', async (req, res) => {
     res.status(200).json({ guests });
 });
 
-app.delete('/v3/api/shoutouts/:id', async (req, res) => {
+app.delete('/v3/api/shoutouts', async (req, res) => {
     // console.log({ headers: req.headers });
     console.log(req.query);
 
     try {
         const idToken = req.headers.authorization.substring('Bearer '.length);
-        console.log({ idToken });
-        await admin.auth().verifyIdToken(idToken, true);
+        const decoded = await admin.auth().verifyIdToken(idToken, true);
+        console.log({ idToken, decoded });
+        const usernames = Object.values(req.query);
+        usernames.forEach(async username => {
+            await getPostedBysRef(decoded.id).child(username).remove();
+            await deleteChannelShoutout(decoded.id, username);
+        });
+
+        try {
+
+            const timestamp = Date.now();
+            const shoutouts = await getChannelShoutouts(decoded.id);
+
+            const payload = {
+                shoutoutResponse: {
+                    usernames,
+                    add: false,
+                    timestamp
+                },
+                shoutoutsResponse: {
+                    shoutouts: arrayFromVal(shoutouts)
+                }
+            };
+
+            console.log({ del_id: decoded.id, 'payload': `--- ${JSON.stringify(payload)} ---` });
+
+            await sendToPubsub(payload, decoded.id);
+
+            res.status(204).end();
+        } catch (err) {
+            console.error(err);
+            res.status(500).send(err);
+        }
     } catch (error) {
         res.status(403).send(error.message ? error.message : 'Action Forbidden');
         return;
     }
-
-    Object.values(req.query).forEach(async v => {
-        await getPostedBysRef(req.params.id).child(v).remove();
-        await deleteChannelShoutout(req.params.id, v);
-    });
-
-    /*
-    ------------------------------------------- SEND TO PUBSUB -------------------------------------------
-    */
-
-    res.status(200).json({ params: req.params, query: req.query });
 });
 
+app.get('/v3/api/dashboard/:id', async (req, res) => {
+
+    const shoutouts = arrayFromVal(await getChannelShoutouts(req.params.id));
+    if (shoutouts.length === 0) {
+        res.status(404).json({ guests: [] });
+    }
+
+    const users = shoutouts.map(x => `login=${x}`);
+    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+
+    const posted_bys = await getPostedBys(req.params.id);
+
+    const statsRef = getStatsRef(req.params.id);
+    const guests = [];
+    for (let i = 0; i < shoutouts.length; i++) {
+        const user = data.find(x => x.login === shoutouts[i]);
+        if (!user) continue;
+        const timestamp = Object.values((await statsRef.child(`${user.login}/${posted_bys[user.login]}`).limitToLast(1).get()).val())[0];
+        user.posted = {
+            login: posted_bys[user.login],
+            timestamp: timestamp
+        };
+        guests.push(user);
+    }
+
+    res.status(200).json({ guests });
+});
 
 // Coming from Bot request
 app.get('/v3/channels/commands/:id', async (req, res) => {
@@ -332,34 +375,6 @@ app.get('/v3/channels/behaviours/:id', async (req, res) => {
     } else {
         res.status(401).json({ success: false, body: req.body });
     }
-});
-
-app.get('/v3/api/dashboard/:id', async (req, res) => {
-
-    const shoutouts = makeShoutoutsArray(await getChannelShoutouts(req.params.id));
-    if (shoutouts.length === 0) {
-        res.status(404).json({ guests: [] });
-    }
-
-    const users = shoutouts.map(x => `login=${x}`);
-    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
-
-    const posted_bys = await getPostedBys(req.params.id);
-
-    const statsRef = getStatsRef(req.params.id);
-    const guests = [];
-    for (let i = 0; i < shoutouts.length; i++) {
-        const user = data.find(x => x.login === shoutouts[i]);
-        if (!user) continue;
-        const timestamp = Object.values((await statsRef.child(`${user.login}/${posted_bys[user.login]}`).limitToLast(1).get()).val())[0];
-        user.posted = {
-            login: posted_bys[user.login],
-            timestamp: timestamp
-        };
-        guests.push(user);
-    }
-
-    res.status(200).json({ guests });
 });
 
 app.get('/channels/ids', async (req, res) => {
@@ -552,7 +567,7 @@ app.get('/v2/shoutouts', async (req, res) => {
     if (verified) {
         const channelId = verified.channelId;
         const posted_bys = await getPostedBys(channelId);
-        const shoutouts = makeShoutoutsArray(await getChannelShoutouts(channelId));
+        const shoutouts = arrayFromVal(await getChannelShoutouts(channelId));
 
         const pinned = await getPinToTopRef(channelId).once('value').then(snap => snap.val());
         res.json({ shoutouts, posted_bys, pinned });
@@ -759,7 +774,7 @@ async function moveToChannelShoutout(channelId, username) {
     try {
         const shoutoutsRef = getChannelShoutoutsRef(channelId);
         const shoutouts = await getChannelShoutouts(channelId, shoutoutsRef);
-        const shoutoutsArray = makeShoutoutsArray(shoutouts);
+        const shoutoutsArray = arrayFromVal(shoutouts);
         shoutoutsArray.reverse(); // reverse to put in the order stored in the database
         const itemToMove = shoutoutsArray.find(x => x === username);
         const fromIndex = shoutoutsArray.indexOf(itemToMove);
@@ -857,7 +872,7 @@ async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
 
     // new for smaller data send to pubsub
     const channelShoutouts = await getChannelShoutouts(channelId);
-    const shoutoutsArray = makeShoutoutsArray(channelShoutouts);
+    const shoutoutsArray = arrayFromVal(channelShoutouts);
 
 
     const posted_bys_ref = getPostedBysRef(channelId);
@@ -880,7 +895,7 @@ async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
         }
     }
     posted_bys_ref.set(data);
-    console.log({ 'local_log': data });
+    // console.log({ 'local_log': data });
 
     const postedBys = {};
     for (let i = 0; i < shoutoutsArray.length; i++) {
@@ -890,7 +905,7 @@ async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
 
     const message = {
         shoutoutResponse: {
-            username: username,
+            usernames: [username],
             posted_by: posted_by,
             add: true,
             max_count: MAX_CHANNEL_SHOUTOUTS,
@@ -911,10 +926,10 @@ async function channelDeleteShoutout({ headers, body }) {
         await getPostedBysRef(channelId).child(body.username).remove();
         await deleteChannelShoutout(channelId, body.username);
         const shoutouts = await getChannelShoutouts(channelId);
-        const shoutoutsArray = makeShoutoutsArray(shoutouts);
+        const shoutoutsArray = arrayFromVal(shoutouts);
         await sendToPubsub({
             shoutoutResponse: {
-                username: body.username,
+                usernames: [body.username],
                 add: false,
                 timestamp
             },
@@ -943,12 +958,8 @@ async function updateChannelSettings({ headers, body }) {
     }
 }
 
-function makeShoutoutsArray(shoutouts) {
-    const data = [];
-    for (const key in shoutouts) {
-        data.push(shoutouts[key]);
-    }
-    return data;
+function arrayFromVal(val) {
+    return Object.values(val);
 }
 
 function makeChannelIdsArray(channelIds) {
@@ -1176,24 +1187,36 @@ function updateSettings(change, context) {
     }
 }
 
-function deleteShoutouts(change, context) {
-    // if (!change.after.exists()) return null;
-    const deleted = change.val();
+// async function deleteShoutouts(change, context) {
+//     try {
 
-    console.log({ del_id: context.params.id, 'deleted': `--- ${JSON.stringify(deleted)} ---` });
-    return null;
+//         const timestamp = Date.now();
+//         const shoutouts = await getChannelShoutouts(context.params.id);
 
-    // try {
-    //     return sendToPubsub({ settingsResponse: { settings: change.after.val() } }, context.params.id);
-    // } catch (err) {
-    //     console.error(err);
-    //     return null;
-    // }
-}
+//         const payload = {
+//             shoutoutResponse: {
+//                 usernames: arrayFromVal(change.val()),
+//                 add: false,
+//                 timestamp
+//             },
+//             shoutoutsResponse: {
+//                 shoutouts: arrayFromVal(shoutouts)
+//             }
+//         };
+
+//         console.log({ del_id: context.params.id, 'payload': `--- ${JSON.stringify(payload)} ---` });
+
+//         return sendToPubsub(payload, context.params.id);
+
+//     } catch (err) {
+//         console.error(err);
+//         return null;
+//     }
+// }
 exports.updateSettings = functions.database
     .ref('/{id}/settings')
     .onUpdate(updateSettings);
 
-exports.deleteShoutouts = functions.database
-    .ref('/{id}/shoutouts')
-    .onDelete(deleteShoutouts);
+// exports.deleteShoutouts = functions.database
+//     .ref('/{id}/shoutouts')
+//     .onDelete(deleteShoutouts);
