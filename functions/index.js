@@ -123,12 +123,15 @@ app.get('/v3/api/embedded', async (req, res) => {
                     guests.push(user);
                 }
 
-                res.status(200).json({ featured, settings, guests });
+                if (guests.length === 0) continue;
+
+                res.status(200).json({ featured, settings, guests, retries });
                 return;
             }
         }
-        res.status(404).json({ user: null, settings: null, guests: [] });
+        res.status(404).json({ user: null, settings: null, guests: [], retries });
     } catch (error) {
+        console.error(error)
         res.status(500).json({ error: { message: 'ShoutoutsForStreamers bot may be offline' } });
     }
 });
@@ -934,6 +937,7 @@ async function updateChannelSettings({ headers, body }) {
 }
 
 function arrayFromVal(val) {
+    if (!val) return [];
     return Object.values(val);
 }
 
@@ -1162,36 +1166,6 @@ function updateSettings(change, context) {
     }
 }
 
-// async function deleteShoutouts(change, context) {
-//     try {
-
-//         const timestamp = Date.now();
-//         const shoutouts = await getChannelShoutouts(context.params.id);
-
-//         const payload = {
-//             shoutoutResponse: {
-//                 usernames: arrayFromVal(change.val()),
-//                 add: false,
-//                 timestamp
-//             },
-//             shoutoutsResponse: {
-//                 shoutouts: arrayFromVal(shoutouts)
-//             }
-//         };
-
-//         console.log({ del_id: context.params.id, 'payload': `--- ${JSON.stringify(payload)} ---` });
-
-//         return sendToPubsub(payload, context.params.id);
-
-//     } catch (err) {
-//         console.error(err);
-//         return null;
-//     }
-// }
 exports.updateSettings = functions.database
     .ref('/{id}/settings')
     .onUpdate(updateSettings);
-
-// exports.deleteShoutouts = functions.database
-//     .ref('/{id}/shoutouts')
-//     .onDelete(deleteShoutouts);
