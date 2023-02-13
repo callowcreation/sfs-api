@@ -8,29 +8,29 @@ const fetch = require('node-fetch');
 const express = require('express');
 const cors = require('cors');
 
-const ENVIRONMENTS = {
+const CYCLES = {
     DEV: 'dev',
     PROD: 'prod',
+    STAGED: 'staged'
 };
 
-const IS_STAGED = true;
-const ENVIRONMENT = process.env.FUNCTIONS_EMULATOR ? ENVIRONMENTS.DEV : ENVIRONMENTS.PROD;
+const CYCLE = process.env.FUNCTIONS_EMULATOR ? CYCLES.DEV : (process.env.GCLOUD_PROJECT === 'shoutoutsdev-38a1d' ? CYCLES.STAGED : CYCLES.PROD);
 
 const URLS = {
-    DATABASE: IS_STAGED ? process.env.STAGED_DATABASE_URL : process.env.LIVE_DATABASE_URL,
-    BOT: ENVIRONMENT === ENVIRONMENTS.DEV ? process.env.URLS_BOT_DEV : IS_STAGED ? process.env.URLS_BOT_PROD_STAGED : process.env.URLS_BOT_PROD_LIVE
+    DATABASE: CYCLE === CYCLES.DEV || CYCLE === CYCLES.STAGED ? process.env.STAGED_DATABASE_URL : process.env.LIVE_DATABASE_URL,
+    BOT: CYCLE === CYCLES.DEV ? process.env.URLS_BOT_DEV : (CYCLE === CYCLES.STAGED ? process.env.URLS_BOT_PROD_STAGED : process.env.URLS_BOT_PROD_LIVE)
 };
 
 const CREDENTIALS = {
     EXTENSION_VERSION: process.env.EXTENSION_VERSION,
     EXTENSION_CLIENT_ID: process.env.EXTENSION_CLIENT_ID,
     EXTENSION_SECRET: process.env.EXTENSION_SECRET,
-    CLIENT_ID: ENVIRONMENT === ENVIRONMENTS.DEV ? process.env.DEV_CLIENT_ID : process.env.CLIENT_ID,
-    CLIENT_SECRET: ENVIRONMENT === ENVIRONMENTS.DEV ? process.env.DEV_CLIENT_SECRET : process.env.CLIENT_SECRET,
-    REDIRECT_URI: ENVIRONMENT === ENVIRONMENTS.DEV ? process.env.DEV_REDIRECT_URI : process.env.REDIRECT_URI,
+    CLIENT_ID: CYCLE === CYCLES.DEV ? process.env.DEV_CLIENT_ID : process.env.CLIENT_ID,
+    CLIENT_SECRET: CYCLE === CYCLES.DEV ? process.env.DEV_CLIENT_SECRET : process.env.CLIENT_SECRET,
+    REDIRECT_URI: CYCLE === CYCLES.DEV ? process.env.DEV_REDIRECT_URI : process.env.REDIRECT_URI,
 };
 
-const serviceAccount = IS_STAGED ? require("./serviceAccountKeyDev.json") : require("./serviceAccountKeyProd.json");
+const SERVICE_ACCOUNT = CYCLE === CYCLES.DEV || CYCLE === CYCLES.STAGED ? require('../keys/serviceAccountKeyDev.json') : require('../keys/serviceAccountKeyProd.json');
 
 const botHeaders = {
     'Content-Type': 'application/json',
@@ -42,7 +42,7 @@ const MAX_CHANNEL_SHOUTOUTS = 4;
 const serverTokenDurationSec = 30;
 
 const firebaseApp = admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.credential.cert(SERVICE_ACCOUNT),
     databaseURL: URLS.DATABASE
 });
 
@@ -497,51 +497,6 @@ app.get('/v2/settings', async (req, res) => {
     }
 });
 
-async function getChannelIds() {
-    const ids = [];
-    const snapshot = await globalChannelIdsRef().once('value');
-    snapshot.forEach(child => {
-        const id = child.val();
-        ids.push(id);
-    });
-    return ids;
-}
-
-async function getProducts() {
-    const products = [];
-    const snapshot = await globalProductsRef().once('value');
-    snapshot.forEach(child => {
-        const product = child.val();
-        products.push(product);
-    });
-    return products;
-}
-
-
-async function getChannelCommands(channelId) {
-    const commands = [];
-    const snapshot = await getChannelCommandsRef(channelId).once('value');
-    snapshot.forEach(child => {
-        const command = child.val();
-        commands.push(command);
-    });
-    return commands;
-}
-
-function getDefaultSettings() {
-    return {
-        'background-color': '#6441A5',
-        'border-color': '#808080',
-        'color': '#FFFFFF',
-        'auto-shoutouts': false,
-        'enable-bits': true,
-        'bits-tier': 'Tier 1',
-        'pin-days': 3,
-        'badge-vip': true,
-        'commands': ['so', 'shoutout']
-    };
-}
-
 app.get('/v2/shoutouts', async (req, res) => {
     //res.set('Cache-Control', 'public, max-age=300, s-maxage=600');
     const verified = verifyAndGetIds({ headers: req.headers });
@@ -749,6 +704,50 @@ app.post('/v3/products', async (req, res) => {
 });
 
 // v3 endpoints - END
+
+async function getChannelIds() {
+    const ids = [];
+    const snapshot = await globalChannelIdsRef().once('value');
+    snapshot.forEach(child => {
+        const id = child.val();
+        ids.push(id);
+    });
+    return ids;
+}
+
+async function getProducts() {
+    const products = [];
+    const snapshot = await globalProductsRef().once('value');
+    snapshot.forEach(child => {
+        const product = child.val();
+        products.push(product);
+    });
+    return products;
+}
+
+async function getChannelCommands(channelId) {
+    const commands = [];
+    const snapshot = await getChannelCommandsRef(channelId).once('value');
+    snapshot.forEach(child => {
+        const command = child.val();
+        commands.push(command);
+    });
+    return commands;
+}
+
+function getDefaultSettings() {
+    return {
+        'background-color': '#6441A5',
+        'border-color': '#808080',
+        'color': '#FFFFFF',
+        'auto-shoutouts': false,
+        'enable-bits': true,
+        'bits-tier': 'Tier 1',
+        'pin-days': 3,
+        'badge-vip': true,
+        'commands': ['so', 'shoutout']
+    };
+}
 
 async function moveToChannelShoutout(channelId, username) {
     try {
@@ -1106,8 +1105,7 @@ function makeServerToken(channelId) {
 }
 
 function attachEnvironment(message) {
-    message.environment = ENVIRONMENT;
-    if (message.environment === ENVIRONMENTS.PROD) message.staged = IS_STAGED;
+    message.cycle = CYCLE;
     message.version = CREDENTIALS.EXTENSION_VERSION;
     message.timestamp = Date.now();
     return message;
