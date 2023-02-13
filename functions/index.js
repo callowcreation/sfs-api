@@ -30,7 +30,7 @@ const CREDENTIALS = {
     REDIRECT_URI: CYCLE === CYCLES.DEV ? process.env.DEV_REDIRECT_URI : process.env.REDIRECT_URI,
 };
 
-const SERVICE_ACCOUNT = CYCLE === CYCLES.DEV || CYCLE === CYCLES.STAGED ? require('../keys/serviceAccountKeyDev.json') : require('../keys/serviceAccountKeyProd.json');
+const SERVICE_ACCOUNT = CYCLE === CYCLES.DEV || CYCLE === CYCLES.STAGED ? require('./serviceAccountKeyDev.json') : require('./serviceAccountKeyProd.json');
 
 const botHeaders = {
     'Content-Type': 'application/json',
