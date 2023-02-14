@@ -177,30 +177,29 @@ app.get('/v3/api/common/:id', async (req, res) => {
             case 'statistics': {
                 const statistics = await firebaseApp.database().ref(`${req.params.id}/stats`).once('value')
                     .then(snap => {
-                        const items = [];
+                        const guests = [];
+                        const posted_bys = [];
                         snap.forEach(child => {
                             const item = child.val();
-                            const posted = [];
+                            const posted = {};
 
                             let total = 0;
-                            let min = Infinity;
-                            let max = 0;
-
 
                             for (const login in item) {
                                 const timestamps = Object.keys(item[login]).map(x => item[login][x]);
                                 const length = [...timestamps].length;
                                 total += length;
-                                min = Math.min(min, length);
-                                max = Math.max(max, length);
-                                posted.push({ login: login, timestamps: [...timestamps] });
+                                let posted = posted_bys.find(x => x.login === login);
+                                if (!posted) {
+                                    posted = { login: login, total: 0 };
+                                    posted_bys.push(posted);
+                                }
+                                posted.total += timestamps.length;
                             }
-
-                            items.push({ login: child.key, posted, total, min, max });
+                            guests.push({ login: child.key, total, posted });
                         });
-                        return items;
+                        return { guests, posted_bys };
                     });
-
                 payload[key] = statistics;
             } break;
 
