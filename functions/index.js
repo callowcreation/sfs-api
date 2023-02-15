@@ -179,26 +179,36 @@ app.get('/v3/api/common/:id', async (req, res) => {
                     .then(snap => {
                         const guests = [];
                         const posted_bys = [];
+                        const recents = [];
                         snap.forEach(child => {
                             const item = child.val();
-                            const posted = {};
 
                             let total = 0;
-
                             for (const login in item) {
                                 const timestamps = Object.keys(item[login]).map(x => item[login][x]);
-                                const length = [...timestamps].length;
-                                total += length;
+                                total += timestamps.length;
                                 let posted = posted_bys.find(x => x.login === login);
                                 if (!posted) {
                                     posted = { login: login, total: 0 };
                                     posted_bys.push(posted);
                                 }
                                 posted.total += timestamps.length;
+
+                                let recent = recents.find(x => x.login === login);
+                                if (!recent) {
+                                    recent = { login: login, timestamp: 0, guest: child.key };                         
+                                    recents.push(recent);
+                                }
+                                
+                                const timestamp = timestamps[timestamps.length - 1];
+                                if(recent.timestamp < timestamp) {
+                                    recent.guest = child.key;
+                                    recent.timestamp = timestamp;
+                                }
                             }
-                            guests.push({ login: child.key, total, posted });
+                            guests.push({ login: child.key, total });
                         });
-                        return { guests, posted_bys };
+                        return { guests, posted_bys, recents };
                     });
                 payload[key] = statistics;
             } break;
