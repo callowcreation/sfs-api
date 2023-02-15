@@ -58,8 +58,15 @@ app.post('/v3/api/user', async (req, res) => {
             displayName: req.body.display_name
         });
     } catch (error) {
-        if (error.message && error.message != 'The user with the provided uid already exists.') {
-            res.status(500).json(error.message ? error.message : 'Create User Failed');
+        if (error.message) {
+            const msgs = [
+                'The email address is already in use by another account.',
+                'The user with the provided uid already exists.'
+            ];
+            if (!msgs.includes(error.message)) {
+                res.status(500).json(error.message);
+                return;
+            }
         }
     }
 
