@@ -196,13 +196,13 @@ app.get('/v3/api/common/:id', async (req, res) => {
 
                                 let recent = recents.find(x => x.login === login);
                                 if (!recent) {
-                                    recent = { login: login, timestamp: 0, guest: child.key };                         
+                                    recent = { login: login, timestamp: 0, streamer: child.key };                         
                                     recents.push(recent);
                                 }
-                                
+
                                 const timestamp = timestamps[timestamps.length - 1];
                                 if(recent.timestamp < timestamp) {
-                                    recent.guest = child.key;
+                                    recent.streamer = child.key;
                                     recent.timestamp = timestamp;
                                 }
                             }
