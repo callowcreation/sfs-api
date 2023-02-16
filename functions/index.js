@@ -224,7 +224,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                             }
                             guests.push({ login: child.key, total });
                         });
-                        return { guests, posted_bys, firsts, recents };
+                        return { guests: guests.sort((a, b) => (a.total > b.total ? -1 : (a.total < b.total ? 1 : 0))).slice(0, 20), posted_bys, firsts, recents };
                     });
                 payload[key] = statistics;
             } break;
