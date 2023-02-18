@@ -1,6 +1,7 @@
 {
   "functions": {
-    "runtime": "nodejs16"
+    "runtime": "nodejs16",
+    "source": "functions"
   },
   "hosting": {
     "public": "public",
@@ -28,6 +29,13 @@
     },
     "hosting": {
       "port": 5000
-    }
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": true
+    },
+    "singleProjectMode": true
   }
 }

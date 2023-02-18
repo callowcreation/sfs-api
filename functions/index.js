@@ -182,48 +182,63 @@ app.get('/v3/api/common/:id', async (req, res) => {
                 payload[key] = guests;
             } break;
             case 'statistics': {
-                const statistics = await firebaseApp.database().ref(`${req.params.id}/stats`).once('value')
-                    .then(snap => {
-                        const guests = [];
-                        const posted_bys = [];
-                        const firsts = [];
-                        const recents = [];
-                        snap.forEach(child => {
-                            const item = child.val();
-
-                            let total = 0;
-                            for (const login in item) {
-                                const timestamps = Object.keys(item[login]).map(x => item[login][x]);
-                                total += timestamps.length;
-                                let posted = posted_bys.find(x => x.login === login);
-                                if (!posted) {
-                                    posted = { login: login, total: 0 };
-                                    posted_bys.push(posted);
-                                }
-                                posted.total += timestamps.length;
-                                
-                                let first = firsts.find(x => x.login === login);
-                                if (!first) {
-                                    first = { login: login, timestamp: Infinity, streamer: child.key };                         
-                                    firsts.push(first);
-                                }
-                                if(first.timestamp > timestamps[0]) {
-                                    first.streamer = child.key;
-                                    first.timestamp = timestamps[0];
-                                }
-
-                                let recent = recents.find(x => x.login === login);
-                                if (!recent) {
-                                    recent = { login: login, timestamp: 0, streamer: child.key };                         
-                                    recents.push(recent);
-                                }
-                                if(recent.timestamp < timestamps[timestamps.length - 1]) {
-                                    recent.streamer = child.key;
-                                    recent.timestamp = timestamps[timestamps.length - 1];
-                                }
+                await copyStatsToGlobal(req.params.id);
+                
+                const statistics = await admin.firestore().collection('stats')
+                    .where('channel_id', '==', req.params.id)
+                    .get()
+                    .then(snap => snap.docs.map(x => x.data()))
+                    .then(records => {
+                        const guests = records.reduce((acc, item) => {
+                            let record = acc.find(x => x.login === item.streamer);
+                            if (!record) {
+                                record = { login: item.streamer, total: 0 };
+                                acc.push(record);
                             }
-                            guests.push({ login: child.key, total });
-                        });
+                            record.total++;
+                            return acc;
+                        }, []);
+
+                        const posted_bys = records.reduce((acc, item) => {
+                            let record = acc.find(x => x.login === item.posted);
+                            if (!record) {
+                                record = { login: item.posted, total: 0 };
+                                acc.push(record);
+                            }
+                            record.total++;
+                            return acc;
+                        }, []);
+
+                        const firsts = records.reduce((acc, item) => {
+                            let record = acc.find(x => x.login === item.posted);
+                            if (!record) {
+                                record = { login: item.posted, streamer: item.streamer, timestamp: item.timestamp };
+                                acc.push(record);
+                            }
+
+                            if (record.timestamp > item.timestamp) {
+                                record.streamer = item.streamer;
+                                record.timestamp = item.timestamp;
+                            }
+
+                            return acc;
+                        }, []);
+
+                        const recents = records.reduce((acc, item) => {
+                            let record = acc.find(x => x.login === item.posted);
+                            if (!record) {
+                                record = { login: item.posted, streamer: item.streamer, timestamp: item.timestamp };
+                                acc.push(record);
+                            }
+
+                            if (record.timestamp < item.timestamp) {
+                                record.streamer = item.streamer;
+                                record.timestamp = item.timestamp;
+                            }
+
+                            return acc;
+                        }, []);
+
                         return { guests, posted_bys, firsts, recents };
                     });
                 payload[key] = statistics;
@@ -328,16 +343,23 @@ app.get('/v3/api/dashboard/:id', async (req, res) => {
 
     const posted_bys = await getPostedBys(req.params.id);
 
-    const statsRef = getStatsRef(req.params.id);
+    await copyStatsToGlobal(req.params.id);
+    const col = admin.firestore().collection('stats');
+
     const guests = [];
     for (let i = 0; i < shoutouts.length; i++) {
         const user = data.find(x => x.login === shoutouts[i]);
         if (!user) continue;
-        const timestamp = Object.values((await statsRef.child(`${user.login}/${posted_bys[user.login]}`).limitToLast(1).get()).val())[0];
-        user.posted = {
-            login: posted_bys[user.login],
-            timestamp: timestamp
-        };
+
+        const posted = await col
+            .where('channel_id', '==', req.params.id)
+            .where('streamer', '==', user.login)
+            .where('posted', '==', posted_bys[user.login])
+            .orderBy('timestamp', 'desc')
+            .limit(1)
+            .get()
+            .then(snap => ({ login: posted_bys[user.login], timestamp: snap.docs[0].data().timestamp }));
+        user.posted = posted;
         guests.push(user);
     }
 
@@ -472,6 +494,7 @@ app.get('/v2/bot/join', async (req, res) => {
     if (verified) {
         const channelId = verified.channelId;
         try {
+            await copyStatsToGlobal(channelId);
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
         } catch (error) {
@@ -491,6 +514,7 @@ app.get('/v2/channels/names', async (req, res) => {
     const idsRef = globalChannelIdsRef();
     for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
+        await copyStatsToGlobal(id);
         await addChannelToIds(id, idsRef);
     }
     res.end();
@@ -504,6 +528,7 @@ app.get('/v2/settings', async (req, res) => {
         const settings = await getChannelSettings(channelId);
 
         try {
+            await copyStatsToGlobal(channelId);
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
             const data = {
@@ -813,6 +838,25 @@ async function addChannelToIds(channel_id, ids_ref = null) {
     }
 }
 
+async function copyStatsToGlobal(channel_id) {
+    const col = admin.firestore().collection('stats');
+
+    const stats = await getChannelStats(channel_id);
+    if (!stats) return;
+    for (const streamer in stats) {
+        const entries = stats[streamer];
+        for (const posted in entries) {
+            const timestamps = entries[posted];
+            for (const key in timestamps) {
+                const timestamp = timestamps[key];
+                const stat = { channel_id, streamer, posted, timestamp };
+                await col.add(stat);
+            }
+        }
+    }
+    await getStatsRef(channel_id).remove();
+}
+
 async function sendJoinChannel(channelId) {
     await sendBotRequest(`${URLS.BOT}/join`, 'POST', { channelId });
 }
@@ -950,6 +994,7 @@ async function updateChannelSettings({ headers, body }) {
     if (verified) {
         const channelId = verified.channelId;
         try {
+            await copyStatsToGlobal(channelId);
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
         } catch (error) {
@@ -993,6 +1038,12 @@ async function getChannel(channelId, defaultValue) {
 
 function getChannelSettings(channelId) {
     return getChannelSettingsRef(channelId)
+        .once('value')
+        .then(snap => snap.val());
+}
+
+function getChannelStats(channelId) {
+    return getStatsRef(channelId)
         .once('value')
         .then(snap => snap.val());
 }
