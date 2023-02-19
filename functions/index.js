@@ -190,12 +190,8 @@ app.get('/v3/api/common/:id', async (req, res) => {
                     .get()
                     .then(snap => snap.docs.map(x => x.data()))
                     .then(records => {
-                        const s_recs = records.slice();
-                        const p_recs = records.slice();
-                        const f_recs = records.slice();
-                        const r_recs = records.slice();
 
-                        const streamers = s_recs.reduce((acc, item) => {
+                        const streamers = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.streamer_id == item.streamer_id);
                             if (idx === -1) {
                                 acc.push({ streamer_id: item.streamer_id, total: 0 });
@@ -205,7 +201,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                             return acc;
                         }, []);
 
-                        const posters = p_recs.reduce((acc, item) => {
+                        const posters = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.poster_id == item.poster_id);
                             if (idx === -1) {
                                 acc.push({ poster_id: item.poster_id, total: 0 });
@@ -215,7 +211,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                             return acc;
                         }, []);
 
-                        const firsts = f_recs.reduce((acc, item) => {
+                        const firsts = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.poster_id == item.poster_id);
                             if (idx === -1) {
                                 acc.push({ poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
@@ -230,7 +226,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                             return acc;
                         }, []);
 
-                        const recents = r_recs.reduce((acc, item) => {
+                        const recents = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.poster_id == item.poster_id);
                             if (idx === -1) {
                                 acc.push({ poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
@@ -343,30 +339,33 @@ app.get('/v3/api/dashboard/:broadcaster_id', async (req, res) => {
     if (shoutouts.length === 0) {
         res.status(404).json({ guests: [] });
     }
-
-    const users = shoutouts.map(x => `login=${x}`);
-    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
-
     const posted_bys = await getPostedBys(req.params.broadcaster_id);
+
+    const posters = Object.values(posted_bys);
+    const users = [...shoutouts.map(x => `login=${x}`), ...posters.map(x => `login=${x}`)];
+    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
 
     await copyStatsToGlobal(req.params.broadcaster_id);
     const col = admin.firestore().collection('stats');
 
     const guests = [];
     for (let i = 0; i < shoutouts.length; i++) {
-        const user = data.find(x => x.login === shoutouts[i]);
-        if (!user) continue;
+        const streamer = data.find(x => x.login === shoutouts[i]);
+        if (!streamer) continue;
+
+        const poster = data.find(x => x.login === posted_bys[streamer.login]);
+        if (!poster) continue;
 
         const posted = await col
             .where('broadcaster_id', '==', req.params.broadcaster_id)
-            .where('streamer', '==', user.login)
-            .where('posted', '==', posted_bys[user.login])
+            .where('streamer_id', '==', streamer.id)
+            .where('poster_id', '==', poster.id)
             .orderBy('timestamp', 'desc')
             .limit(1)
             .get()
-            .then(snap => ({ login: posted_bys[user.login], timestamp: snap.docs[0].data().timestamp }));
-        user.posted = posted;
-        guests.push(user);
+            .then(snap => ({ login: poster.login, display_name: poster.display_name, timestamp: snap.docs[0].data().timestamp }));
+        streamer.posted = posted;
+        guests.push(streamer);
     }
 
     res.status(200).json({ guests });
