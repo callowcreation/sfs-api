@@ -183,7 +183,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
             } break;
             case 'statistics': {
 
-                await copyStatsToGlobal(req.params.id);
+                await migrateStats(req.params.id);
 
                 const statistics = await admin.firestore().collection('stats')
                     .where('broadcaster_id', '==', req.params.id)
@@ -345,7 +345,7 @@ app.get('/v3/api/dashboard/:broadcaster_id', async (req, res) => {
     const users = [...shoutouts.map(x => `login=${x}`), ...posters.map(x => `login=${x}`)];
     const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
 
-    await copyStatsToGlobal(req.params.broadcaster_id);
+    await migrateStats(req.params.broadcaster_id);
     const col = admin.firestore().collection('stats');
 
     const guests = [];
@@ -392,7 +392,7 @@ app.get('/v3/channels/behaviours/:id', async (req, res) => {
     if (verifyAuthorization({ headers: req.headers })) {
         try {
             const settings = await getChannelSettings(req.params.id);
-
+            if (!settings.commands) settings.commands = [];
             if (settings.commands.length === 0) {
                 settings.commands.push(...['so', 'shoutout']);
             }
@@ -427,6 +427,7 @@ app.get('/channels/ids', async (req, res) => {
 // Coming from Bot request
 app.post('/channels/shoutouts/add', async (req, res) => {
     if (verifyAuthorization({ headers: req.headers })) {
+        await createStat({ broadcaster_id: req.body.channelId, streamer_id: req.body.streamer_id, poster_id: req.body.poster_id });
         await channelAddShoutout(req.body);
         res.end();
     } else {
@@ -499,7 +500,7 @@ app.get('/v2/bot/join', async (req, res) => {
     if (verified) {
         const channelId = verified.channelId;
         try {
-            await copyStatsToGlobal(channelId);
+            await migrateStats(channelId);
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
         } catch (error) {
@@ -519,7 +520,7 @@ app.get('/v2/channels/names', async (req, res) => {
     const idsRef = globalChannelIdsRef();
     for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
-        await copyStatsToGlobal(id);
+        await migrateStats(id);
         await addChannelToIds(id, idsRef);
     }
     res.end();
@@ -533,7 +534,7 @@ app.get('/v2/settings', async (req, res) => {
         const settings = await getChannelSettings(channelId);
 
         try {
-            await copyStatsToGlobal(channelId);
+            await migrateStats(channelId);
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
             const data = {
@@ -616,7 +617,7 @@ app.post('/v3/bits/move-up', async (req, res) => {
 
             const posted_bys = await getPostedBys(channelId);
 
-            const shoutoutsArray = await moveToChannelShoutout(channelId, req.body.username);
+            // const shoutoutsArray = await moveToChannelShoutout(channelId, req.body.username);
 
             const result = await sendToPubsub({
                 transactionResponse: {
@@ -736,6 +737,7 @@ app.post('/v3/bits/pin-to-top-expired', async (req, res) => {
         const numChildren = (await pinToTopRef.once('value')).numChildren();
         if (numChildren > 0) {
             await pinToTopRef.remove();
+
             await channelAddShoutout({ channelId: verified.channelId, username: req.body.username, posted_by: req.body.posted_by, is_auto: false });
         }
 
@@ -843,10 +845,12 @@ async function addChannelToIds(channel_id, ids_ref = null) {
     }
 }
 
-async function copyStatsToGlobal(broadcaster_id) {
-    const statsCollection = admin.firestore().collection('stats');
+async function migrateStats(broadcaster_id) {
+    const db = admin.firestore();
+    const statsCollection = db.collection('stats');
     const stats = await getChannelStats(broadcaster_id);
     if (!stats) return;
+
     for (const streamer in stats) {
         const entries = stats[streamer];
         for (const poster in entries) {
@@ -860,12 +864,17 @@ async function copyStatsToGlobal(broadcaster_id) {
                     const streamer_id = data.find(x => x.login === streamer).id;
                     const poster_id = data.find(x => x.login === poster).id;
                     const stat = { broadcaster_id, streamer_id, poster_id, timestamp };
-                    await statsCollection.add(stat);
+                    await statsCollection.add(stat)
+                        .then(() => {
+                            return getStatsRef(broadcaster_id).child(`${streamer}/${poster}/${key}`).remove();
+                        })
+                        .catch(e => {
+                            console.log(`Cound not create entry for ${streamer} posted by ${poster} ${timestamp} ${JSON.stringify(stat)}`);
+                        });
                 }
             }
         }
     }
-    await getStatsRef(broadcaster_id).remove();
 }
 
 async function sendJoinChannel(channelId) {
@@ -881,6 +890,16 @@ async function sendBotRequest(url, method, data = null) {
     return fetch(url, options).then(r => r.json());
 }
 
+async function createStat({ broadcaster_id, streamer_id, poster_id }) {
+    return admin.firestore().collection('stats')
+        .add({
+            broadcaster_id,
+            streamer_id,
+            poster_id,
+            timestamp: serverTimestamp()
+        });
+}
+
 async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
 
     /*
@@ -893,10 +912,6 @@ async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
         const settings = await getChannelSettings(channelId);
         if (settings['auto-shoutouts'] === false) return;
     }
-
-    const statsRef = getStatsRef(channelId);
-    const timestamp = Date.now();
-    await statsRef.child(`${username}/${posted_by}`).push(timestamp);
 
     const shoutoutsRef = getChannelShoutoutsRef(channelId);
     const shoutouts = await getChannelShoutouts(channelId, shoutoutsRef);
@@ -967,7 +982,7 @@ async function channelAddShoutout({ channelId, username, posted_by, is_auto }) {
             posted_by: posted_by,
             add: true,
             max_count: MAX_CHANNEL_SHOUTOUTS,
-            timestamp
+            timestamp: serverTimestamp()
         }
     };
     const result = await sendToPubsub(message, channelId);
@@ -1005,7 +1020,7 @@ async function updateChannelSettings({ headers, body }) {
     if (verified) {
         const channelId = verified.channelId;
         try {
-            await copyStatsToGlobal(channelId);
+            await migrateStats(channelId);
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
         } catch (error) {
