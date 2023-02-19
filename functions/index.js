@@ -182,64 +182,70 @@ app.get('/v3/api/common/:id', async (req, res) => {
                 payload[key] = guests;
             } break;
             case 'statistics': {
+
                 await copyStatsToGlobal(req.params.id);
-                
+
                 const statistics = await admin.firestore().collection('stats')
-                    .where('channel_id', '==', req.params.id)
+                    .where('broadcaster_id', '==', req.params.id)
                     .get()
                     .then(snap => snap.docs.map(x => x.data()))
                     .then(records => {
-                        const guests = records.reduce((acc, item) => {
-                            let record = acc.find(x => x.login === item.streamer);
-                            if (!record) {
-                                record = { login: item.streamer, total: 0 };
-                                acc.push(record);
+                        const s_recs = records.slice();
+                        const p_recs = records.slice();
+                        const f_recs = records.slice();
+                        const r_recs = records.slice();
+
+                        const streamers = s_recs.reduce((acc, item) => {
+                            let idx = acc.findIndex(x => x.streamer_id == item.streamer_id);
+                            if (idx === -1) {
+                                acc.push({ streamer_id: item.streamer_id, total: 0 });
+                                idx = acc.length - 1;
                             }
-                            record.total++;
+                            acc[idx].total++;
                             return acc;
                         }, []);
 
-                        const posted_bys = records.reduce((acc, item) => {
-                            let record = acc.find(x => x.login === item.posted);
-                            if (!record) {
-                                record = { login: item.posted, total: 0 };
-                                acc.push(record);
+                        const posters = p_recs.reduce((acc, item) => {
+                            let idx = acc.findIndex(x => x.poster_id == item.poster_id);
+                            if (idx === -1) {
+                                acc.push({ poster_id: item.poster_id, total: 0 });
+                                idx = acc.length - 1;
                             }
-                            record.total++;
+                            acc[idx].total++;
                             return acc;
                         }, []);
 
-                        const firsts = records.reduce((acc, item) => {
-                            let record = acc.find(x => x.login === item.posted);
-                            if (!record) {
-                                record = { login: item.posted, streamer: item.streamer, timestamp: item.timestamp };
-                                acc.push(record);
+                        const firsts = f_recs.reduce((acc, item) => {
+                            let idx = acc.findIndex(x => x.poster_id == item.poster_id);
+                            if (idx === -1) {
+                                acc.push({ poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
+                                idx = acc.length - 1;
                             }
 
-                            if (record.timestamp > item.timestamp) {
-                                record.streamer = item.streamer;
-                                record.timestamp = item.timestamp;
-                            }
-
-                            return acc;
-                        }, []);
-
-                        const recents = records.reduce((acc, item) => {
-                            let record = acc.find(x => x.login === item.posted);
-                            if (!record) {
-                                record = { login: item.posted, streamer: item.streamer, timestamp: item.timestamp };
-                                acc.push(record);
-                            }
-
-                            if (record.timestamp < item.timestamp) {
-                                record.streamer = item.streamer;
-                                record.timestamp = item.timestamp;
+                            if (acc[idx].timestamp > item.timestamp) {
+                                acc[idx].streamer_id = item.streamer_id;
+                                acc[idx].timestamp = item.timestamp;
                             }
 
                             return acc;
                         }, []);
 
-                        return { guests, posted_bys, firsts, recents };
+                        const recents = r_recs.reduce((acc, item) => {
+                            let idx = acc.findIndex(x => x.poster_id == item.poster_id);
+                            if (idx === -1) {
+                                acc.push({ poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
+                                idx = acc.length - 1;
+                            }
+
+                            if (acc[idx].timestamp < item.timestamp) {
+                                acc[idx].streamer_id = item.streamer_id;
+                                acc[idx].timestamp = item.timestamp;
+                            }
+
+                            return acc;
+                        }, []);
+
+                        return { streamers, posters, firsts, recents };
                     });
                 payload[key] = statistics;
             } break;
@@ -331,9 +337,9 @@ app.delete('/v3/api/shoutouts', async (req, res) => {
     }
 });
 
-app.get('/v3/api/dashboard/:id', async (req, res) => {
+app.get('/v3/api/dashboard/:broadcaster_id', async (req, res) => {
 
-    const shoutouts = arrayFromVal(await getChannelShoutouts(req.params.id));
+    const shoutouts = arrayFromVal(await getChannelShoutouts(req.params.broadcaster_id));
     if (shoutouts.length === 0) {
         res.status(404).json({ guests: [] });
     }
@@ -341,9 +347,9 @@ app.get('/v3/api/dashboard/:id', async (req, res) => {
     const users = shoutouts.map(x => `login=${x}`);
     const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
 
-    const posted_bys = await getPostedBys(req.params.id);
+    const posted_bys = await getPostedBys(req.params.broadcaster_id);
 
-    await copyStatsToGlobal(req.params.id);
+    await copyStatsToGlobal(req.params.broadcaster_id);
     const col = admin.firestore().collection('stats');
 
     const guests = [];
@@ -352,7 +358,7 @@ app.get('/v3/api/dashboard/:id', async (req, res) => {
         if (!user) continue;
 
         const posted = await col
-            .where('channel_id', '==', req.params.id)
+            .where('broadcaster_id', '==', req.params.broadcaster_id)
             .where('streamer', '==', user.login)
             .where('posted', '==', posted_bys[user.login])
             .orderBy('timestamp', 'desc')
@@ -838,23 +844,29 @@ async function addChannelToIds(channel_id, ids_ref = null) {
     }
 }
 
-async function copyStatsToGlobal(channel_id) {
-    const col = admin.firestore().collection('stats');
-
-    const stats = await getChannelStats(channel_id);
+async function copyStatsToGlobal(broadcaster_id) {
+    const statsCollection = admin.firestore().collection('stats');
+    const stats = await getChannelStats(broadcaster_id);
     if (!stats) return;
     for (const streamer in stats) {
         const entries = stats[streamer];
-        for (const posted in entries) {
-            const timestamps = entries[posted];
-            for (const key in timestamps) {
-                const timestamp = timestamps[key];
-                const stat = { channel_id, streamer, posted, timestamp };
-                await col.add(stat);
+        for (const poster in entries) {
+
+            const users = [`login=${streamer}`, `login=${poster}`];
+            const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+            if (data.length == 2) { // else user changed name or not on twitch
+                const timestamps = entries[poster];
+                for (const key in timestamps) {
+                    const timestamp = timestamps[key];
+                    const streamer_id = data.find(x => x.login === streamer).id;
+                    const poster_id = data.find(x => x.login === poster).id;
+                    const stat = { broadcaster_id, streamer_id, poster_id, timestamp };
+                    await statsCollection.add(stat);
+                }
             }
         }
     }
-    await getStatsRef(channel_id).remove();
+    await getStatsRef(broadcaster_id).remove();
 }
 
 async function sendJoinChannel(channelId) {
