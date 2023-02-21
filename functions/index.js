@@ -183,7 +183,8 @@ app.get('/v3/api/common/:id', async (req, res) => {
             } break;
             case 'statistics': {
 
-                await migrateLegacyStats(req.params.id);
+                await migrateLegacyStats(req.params.id)
+                    .catch(e => console.error(e));
 
                 const statistics = await admin.firestore().collection('stats')
                     .where('broadcaster_id', '==', req.params.id)
@@ -194,7 +195,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                         const streamers = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.streamer_id == item.streamer_id);
                             if (idx === -1) {
-                                acc.push({ lagacy: item.lagacy, streamer_id: item.streamer_id, total: 0 });
+                                acc.push({ legacy: item.legacy, streamer_id: item.streamer_id, total: 0 });
                                 idx = acc.length - 1;
                             }
                             acc[idx].total++;
@@ -204,7 +205,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                         const posters = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.poster_id == item.poster_id);
                             if (idx === -1) {
-                                acc.push({ lagacy: item.lagacy, poster_id: item.poster_id, total: 0 });
+                                acc.push({ legacy: item.legacy, poster_id: item.poster_id, total: 0 });
                                 idx = acc.length - 1;
                             }
                             acc[idx].total++;
@@ -214,7 +215,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                         const firsts = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.poster_id == item.poster_id);
                             if (idx === -1) {
-                                acc.push({ lagacy: item.lagacy, poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
+                                acc.push({ legacy: item.legacy, poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
                                 idx = acc.length - 1;
                             }
 
@@ -229,7 +230,7 @@ app.get('/v3/api/common/:id', async (req, res) => {
                         const recents = records.reduce((acc, item) => {
                             let idx = acc.findIndex(x => x.poster_id == item.poster_id);
                             if (idx === -1) {
-                                acc.push({ lagacy: item.lagacy, poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
+                                acc.push({ legacy: item.legacy, poster_id: item.poster_id, streamer_id: item.streamer_id, timestamp: item.timestamp });
                                 idx = acc.length - 1;
                             }
 
@@ -345,7 +346,8 @@ app.get('/v3/api/dashboard/:broadcaster_id', async (req, res) => {
     const users = [...shoutouts.map(x => `login=${x}`), ...posters.map(x => `login=${x}`)];
     const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
 
-    await migrateLegacyStats(req.params.broadcaster_id);
+    await migrateLegacyStats(req.params.broadcaster_id)
+        .catch(e => console.error(e));
     const col = admin.firestore().collection('stats');
 
     const guests = [];
@@ -500,7 +502,8 @@ app.get('/v2/bot/join', async (req, res) => {
     if (verified) {
         const channelId = verified.channelId;
         try {
-            await migrateLegacyStats(channelId);
+            await migrateLegacyStats(channelId)
+                .catch(e => console.error(e));
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
         } catch (error) {
@@ -520,7 +523,8 @@ app.get('/v2/channels/names', async (req, res) => {
     const idsRef = globalChannelIdsRef();
     for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
-        await migrateLegacyStats(id);
+        await migrateLegacyStats(id)
+            .catch(e => console.error(e));
         await addChannelToIds(id, idsRef);
     }
     res.end();
@@ -534,7 +538,8 @@ app.get('/v2/settings', async (req, res) => {
         const settings = await getChannelSettings(channelId);
 
         try {
-            await migrateLegacyStats(channelId);
+            await migrateLegacyStats(channelId)
+                .catch(e => console.error(e));
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
             const data = {
@@ -852,17 +857,22 @@ async function migrateLegacyStats(broadcaster_id) {
 
     const statsCollection = admin.firestore().collection('stats');
 
-    for (const streamer in stats) {
-        for (const poster in stats[streamer]) {
-            for (const key in stats[streamer][poster]) {
-                const timestamp = stats[streamer][poster][key];
-                const stat = { lagacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
-                await statsCollection.add(stat)
-                    .then(() => getStatsRef(broadcaster_id).child(`${streamer}/${poster}/${key}`).remove())
-                    .catch(e => console.error(`Cound not create entry for ${streamer} posted by ${poster} ${timestamp} ${JSON.stringify(stat)}`, e));
+    try {
+        for (const streamer in stats) {
+            for (const poster in stats[streamer]) {
+                for (const key in stats[streamer][poster]) {
+                    const timestamp = stats[streamer][poster][key];
+                    const stat = { legacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
+                    await statsCollection.add(stat);
+                    await getStatsRef(broadcaster_id).child(`${streamer}/${poster}/${key}`).remove();
+                }
             }
-        }
+        } 
+    } catch (e) {
+        console.error(`Cound not create entry for ${broadcaster_id}`, e);
+        throw e;
     }
+
 }
 
 async function sendJoinChannel(channelId) {
@@ -881,7 +891,7 @@ async function sendBotRequest(url, method, data = null) {
 async function createStat({ broadcaster_id, streamer_id, poster_id }) {
     return admin.firestore().collection('stats')
         .add({
-            lagacy: false, 
+            legacy: false,
             broadcaster_id,
             streamer_id,
             poster_id,
@@ -1009,7 +1019,8 @@ async function updateChannelSettings({ headers, body }) {
     if (verified) {
         const channelId = verified.channelId;
         try {
-            await migrateLegacyStats(channelId);
+            await migrateLegacyStats(channelId)
+                .catch(e => console.error(e));
             await addChannelToIds(channelId);
             await sendJoinChannel(channelId);
         } catch (error) {
@@ -1138,7 +1149,7 @@ function getKeyStoreRef() {
 }
 
 function serverTimestamp() {
-    return admin.database.ServerValue ? admin.database.ServerValue.TIMESTAMP : Date.now();
+    return Date.now();
 }
 
 function verifyAuthorization({ headers }) {
