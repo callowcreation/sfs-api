@@ -358,15 +358,28 @@ app.get('/v3/api/dashboard/:broadcaster_id', async (req, res) => {
         const poster = data.find(x => x.login === posted_bys[streamer.login]);
         if (!poster) continue;
 
-        const posted = await col
-            .where('broadcaster_id', '==', req.params.broadcaster_id)
-            .where('streamer_id', '==', streamer.id)
-            .where('poster_id', '==', poster.id)
-            .orderBy('timestamp', 'desc')
-            .limit(1)
-            .get()
-            .then(snap => ({ login: poster.login, display_name: poster.display_name, timestamp: snap.docs[0].data().timestamp }));
-        streamer.posted = posted;
+        try {
+            const posted = await col
+                .where('broadcaster_id', '==', req.params.broadcaster_id)
+                .where('streamer_id', '==', streamer.id)
+                .where('poster_id', '==', poster.id)
+                .orderBy('timestamp', 'desc')
+                .limit(1)
+                .get()
+                .then(snap => ({ login: poster.login, display_name: poster.display_name, timestamp: snap.docs[0].data().timestamp }));
+            streamer.posted = posted;
+        } catch (error) {
+            console.error(error);
+            const posted = await col
+                .where('broadcaster_id', '==', req.params.broadcaster_id)
+                .where('streamer_id', '==', streamer.login)
+                .where('poster_id', '==', poster.login)
+                .orderBy('timestamp', 'desc')
+                .limit(1)
+                .get()
+                .then(snap => ({ login: poster.login, display_name: poster.display_name, timestamp: snap.docs[0].data().timestamp }));
+            streamer.posted = posted;
+        }
         guests.push(streamer);
     }
 
@@ -867,7 +880,7 @@ async function migrateLegacyStats(broadcaster_id) {
                     await getStatsRef(broadcaster_id).child(`${streamer}/${poster}/${key}`).remove();
                 }
             }
-        } 
+        }
     } catch (e) {
         console.error(`Cound not create entry for ${broadcaster_id}`, e);
         throw e;
