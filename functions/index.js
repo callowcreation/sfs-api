@@ -114,25 +114,25 @@ app.get('/v3/api/embedded', async (req, res) => {
                 const shoutouts = arrayFromVal(await getChannelShoutouts(id));
                 if (shoutouts.length === 0) continue;
 
-                const users = [];
-                users.push(`id=${id}`);
-                users.push(...shoutouts.map(x => `login=${x}`));
-                const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
+                // const users = [];
+                // users.push(`id=${id}`);
+                // users.push(...shoutouts.map(x => `login=${x}`));
+                // const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
 
-                const featured = data.shift();
+                // const featured = data.shift();
                 const posted_bys = await getPostedBys(id);
 
                 const guests = [];
                 for (let i = 0; i < shoutouts.length; i++) {
-                    const user = data.find(x => x.login === shoutouts[i]);
-                    if (!user) continue;
-                    user.posted_by = posted_bys[user.login];
-                    guests.push(user);
+                    // const user = data.find(x => x.login === shoutouts[i]);
+                    // if (!user) continue;
+                    // user.posted_by = posted_bys[user.login];
+                    guests.push({ streamer_id: shoutouts[i], poster_id: posted_bys[shoutouts[i]] });
                 }
 
                 if (guests.length === 0) continue;
 
-                res.status(200).json({ featured, settings, guests, retries });
+                res.status(200).json({ featured_id: id, settings, guests, retries });
                 return;
             }
         }
@@ -383,7 +383,9 @@ app.get('/v3/api/dashboard/:broadcaster_id', async (req, res) => {
         guests.push(streamer);
     }
 
-    res.status(200).json({ guests });
+    const pinned = await getPinToTopRef(req.params.broadcaster_id).once('value').then(snap => snap.val());
+
+    res.status(200).json({ guests, pinned });
 });
 
 // Coming from Bot request
