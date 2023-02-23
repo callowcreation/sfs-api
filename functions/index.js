@@ -114,19 +114,10 @@ app.get('/v3/api/embedded', async (req, res) => {
                 const shoutouts = arrayFromVal(await getChannelShoutouts(id));
                 if (shoutouts.length === 0) continue;
 
-                // const users = [];
-                // users.push(`id=${id}`);
-                // users.push(...shoutouts.map(x => `login=${x}`));
-                // const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
-
-                // const featured = data.shift();
                 const posted_bys = await getPostedBys(id);
 
                 const guests = [];
                 for (let i = 0; i < shoutouts.length; i++) {
-                    // const user = data.find(x => x.login === shoutouts[i]);
-                    // if (!user) continue;
-                    // user.posted_by = posted_bys[user.login];
                     guests.push({ streamer_id: shoutouts[i], poster_id: posted_bys[shoutouts[i]] });
                 }
 
@@ -155,29 +146,15 @@ app.get('/v3/api/common/:id', async (req, res) => {
                 const settings = await getChannelSettings(req.params.id);
                 payload[key] = settings;
             } break;
-            case 'featured': {
-                const users = [];
-                users.push(`id=${req.params.id}`);
-                const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
-                const featured = data.shift();
-                payload[key] = featured;
-            } break;
             case 'guests': {
                 const shoutouts = arrayFromVal(await getChannelShoutouts(req.params.id));
                 if (shoutouts.length === 0) continue;
-
-                const users = [];
-                users.push(...shoutouts.map(x => `login=${x}`));
-                const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
 
                 const posted_bys = await getPostedBys(req.params.id);
 
                 const guests = [];
                 for (let i = 0; i < shoutouts.length; i++) {
-                    const user = data.find(x => x.login === shoutouts[i]);
-                    if (!user) continue;
-                    user.posted_by = posted_bys[user.login];
-                    guests.push(user);
+                    guests.push({ streamer_id: shoutouts[i], poster_id: posted_bys[shoutouts[i]] });
                 }
                 payload[key] = guests;
             } break;
@@ -268,39 +245,6 @@ app.get('/v3/api/products', async (req, res) => {
     res.status(200).json({ products });
 });
 
-app.get('/v3/api/configuration', async (req, res) => {
-    try {
-        const idToken = req.headers.authorization.substring('Bearer '.length);
-        await admin.auth().verifyIdToken(idToken, true);
-    } catch (error) {
-        res.status(403).send(error.message ? error.message : 'Action Forbidden');
-        return;
-    }
-
-    const shoutouts = arrayFromVal(await getChannelShoutouts(id));
-    if (shoutouts.length === 0) {
-        res.status(404).end();
-        return;
-    }
-
-    const users = [];
-    users.push(`id=${id}`);
-    users.push(...shoutouts.map(x => `login=${x}`));
-    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
-
-    const posted_bys = await getPostedBys(id);
-
-    const guests = [];
-    for (let i = 0; i < shoutouts.length; i++) {
-        const user = data.find(x => x.login === shoutouts[i]);
-        if (!user) continue;
-        user.posted_by = posted_bys[user.login];
-        guests.push(user);
-    }
-
-    res.status(200).json({ guests });
-});
-
 app.delete('/v3/api/shoutouts', async (req, res) => {
     try {
         const idToken = req.headers.authorization.substring('Bearer '.length);
@@ -336,54 +280,35 @@ app.delete('/v3/api/shoutouts', async (req, res) => {
 
 app.get('/v3/api/dashboard/:broadcaster_id', async (req, res) => {
 
-    const shoutouts = arrayFromVal(await getChannelShoutouts(req.params.broadcaster_id));
-    if (shoutouts.length === 0) {
-        res.status(404).json({ guests: [] });
-    }
-    const posted_bys = await getPostedBys(req.params.broadcaster_id);
-
-    const posters = Object.values(posted_bys);
-    const users = [...shoutouts.map(x => `login=${x}`), ...posters.map(x => `login=${x}`)];
-    const { data } = await sendBotRequest(`${URLS.BOT}/users`, 'POST', { users });
-
     await migrateLegacyStats(req.params.broadcaster_id)
         .catch(e => console.error(e));
     const col = admin.firestore().collection('stats');
 
     const guests = [];
-    for (let i = 0; i < shoutouts.length; i++) {
-        const streamer = data.find(x => x.login === shoutouts[i]);
-        if (!streamer) continue;
 
-        const poster = data.find(x => x.login === posted_bys[streamer.login]);
-        if (!poster) continue;
+    const posted = await col
+        .where('broadcaster_id', '==', req.params.broadcaster_id)
+        .orderBy('timestamp', 'desc')
+        .limit(4)
+        .get()
+        .then(snap => {
+            return snap.docs.map(doc => {
+                const data = doc.data();
+                return { streamer_id: data.streamer_id, poster_id: data.poster_id, timestamp: data.timestamp };
+            });
+        });
+    guests.push(...posted);
 
-        try {
-            const posted = await col
-                .where('broadcaster_id', '==', req.params.broadcaster_id)
-                .where('streamer_id', '==', streamer.id)
-                .where('poster_id', '==', poster.id)
-                .orderBy('timestamp', 'desc')
-                .limit(1)
-                .get()
-                .then(snap => ({ login: poster.login, display_name: poster.display_name, timestamp: snap.docs[0].data().timestamp }));
-            streamer.posted = posted;
-        } catch (error) {
-            console.error(error);
-            const posted = await col
-                .where('broadcaster_id', '==', req.params.broadcaster_id)
-                .where('streamer_id', '==', streamer.login)
-                .where('poster_id', '==', poster.login)
-                .orderBy('timestamp', 'desc')
-                .limit(1)
-                .get()
-                .then(snap => ({ login: poster.login, display_name: poster.display_name, timestamp: snap.docs[0].data().timestamp }));
-            streamer.posted = posted;
-        }
-        guests.push(streamer);
-    }
-
-    const pinned = await getPinToTopRef(req.params.broadcaster_id).once('value').then(snap => snap.val());
+    const pinned = await getPinToTopRef(req.params.broadcaster_id)
+        .once('value').then(snap => {
+            const data = snap.val();
+            if (!data) return null;
+            return {
+                streamer_id: data.username,
+                poster_id: data.posted_by,
+                timestamp: data.timestamp
+            };
+        });
 
     res.status(200).json({ guests, pinned });
 });
@@ -758,6 +683,7 @@ app.post('/v3/bits/pin-to-top-expired', async (req, res) => {
         if (numChildren > 0) {
             await pinToTopRef.remove();
 
+            // await updateStat({ broadcaster_id: req.body.channelId, streamer_id: req.body.username, poster_id: req.body.posted_by });
             await channelAddShoutout({ channelId: verified.channelId, username: req.body.username, posted_by: req.body.posted_by, is_auto: false });
         }
 
@@ -905,6 +831,28 @@ async function sendBotRequest(url, method, data = null) {
 
 async function createStat({ broadcaster_id, streamer_id, poster_id }) {
     return admin.firestore().collection('stats')
+        .add({
+            legacy: false,
+            broadcaster_id,
+            streamer_id,
+            poster_id,
+            timestamp: serverTimestamp()
+        });
+}
+
+async function updateStat({ broadcaster_id, streamer_id, poster_id }) {
+    const col = admin.firestore().collection('stats');
+
+    const posted = await col
+        .where('broadcaster_id', '==', broadcaster_id)
+        .where('streamer_id', '==', streamer_id)
+        .where('poster_id', '==', poster_id)
+        .orderBy('timestamp', 'desc')
+        .limit(1)
+        .get()
+        .then(snap => snap.docs);
+
+    return col
         .add({
             legacy: false,
             broadcaster_id,
