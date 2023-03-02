@@ -1,9 +1,10 @@
 {
   "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null",
-    "channel_id": {
-      ".indexOn": ".value"
-    }
+    "$id": {
+      ".read": "true",
+    	".write": "auth.uid === $id"
+    },
+    ".read": "false",
+    ".write": "false"
   }
 }
