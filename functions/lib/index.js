@@ -4,6 +4,7 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const express = require("express");
 const cors = require("cors");
+const channels_1 = require("./routes/channels");
 const settings_1 = require("./routes/settings");
 const shoutouts_1 = require("./routes/shoutouts");
 admin.initializeApp({
@@ -12,6 +13,7 @@ admin.initializeApp({
 });
 const app = express();
 app.use(cors({ origin: true }));
+app.use('/channels', channels_1.default);
 app.use('/settings', settings_1.default);
 app.use('/shoutouts', shoutouts_1.default);
 app.get('/', async (req, res) => {

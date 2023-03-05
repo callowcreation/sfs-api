@@ -1,1 +1,10 @@
 node_modules/
+
+**/lib/
+
+# Firebase cache
+**/functions/lib/
+.firebase/
+**/serviceAccountKey*.json
+**/.runtimeconfig.json
+**/node_modules/

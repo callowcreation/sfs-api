@@ -4,7 +4,7 @@ import * as admin from 'firebase-admin';
 const router = express.Router();
 
 router.use(function (req, res, next) {
-    console.log(req.url, '@', Date.now());
+    console.log(`settings/${req.url}`, '@', new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
     next();
 });
 
@@ -18,6 +18,23 @@ router.route('/:id')
         getChannelSettings(req.params.id)
             .then(settings => {
                 res.json(settings);
+            });
+    });
+
+router.route('/:id/behaviours')
+    .get((req, res) => {
+        getChannelSettings(req.params.id)
+            .then(settings => {
+                if (!settings.commands) settings.commands = [];
+                if (settings.commands.length === 0) {
+                    settings.commands.push(...['so', 'shoutout']);
+                }
+
+                res.json({
+                    'auto-shoutouts': settings['auto-shoutouts'],
+                    'badge-vip': settings['badge-vip'],
+                    'commands': settings.commands
+                });
             });
     });
 

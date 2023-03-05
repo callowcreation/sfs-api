@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import * as express from 'express';
 import * as cors from 'cors';
 
+import channels from './routes/channels';
 import settings from './routes/settings';
 import shoutouts from './routes/shoutouts';
 
@@ -16,6 +17,7 @@ const app = express();
 app.use(cors({ origin: true }));
 
 
+app.use('/channels', channels);
 app.use('/settings', settings);
 app.use('/shoutouts', shoutouts);
 
