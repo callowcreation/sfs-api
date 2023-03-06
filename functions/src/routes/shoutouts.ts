@@ -35,15 +35,18 @@ router.route('/:id')
                     .then((records: any) => {
                         const doc = admin.firestore().collection('shoutouts').doc(req.params.id);
                         doc.set({ sources: records.map((x: any) => x.key) });
-                        res.json(records.map((x: any) => x.data));
+                        res.json(records.map((x: any) => ({ key: x.key, ...x.data })));
                     });
             } else {
                 const sources: string[] = value.data()?.sources;
                 const promises: Promise<any>[] = [];
                 for (let i = 0; i < sources.length; i++) {
-                    promises.push(collection().doc(sources[i]).get().then(x => x.data()));
+                    promises.push(collection().doc(sources[i]).get().then(x => ({ key: x.id, ...x.data() })));
                 }
-                Promise.all(promises).then(records => res.json(records));
+                Promise.all(promises).then(records => {
+                    console.log({ records })
+                    res.json(records);
+                });
             }
         });
     })
@@ -74,6 +77,31 @@ router.route('/:id')
                     res.json(snap.id);
                 });
         })
+    });
+
+router.route('/:id/move-up')
+    .put((req, res) => {
+
+        const doc = admin.firestore().collection('shoutouts').doc(req.params.id);
+        doc.get().then(value => {
+            if (value.exists) {
+                const item = value.data() || [];
+                console.log({ sources: item.sources })
+                const index = item.sources.findIndex((x: any) => x === req.body.key);
+
+                const tmp = item.sources[index - 1];
+                item.sources[index - 1] = item.sources[index];
+                item.sources[index] = tmp;
+                return doc.update(item).then(() => ({ index, action: 'move-up' }));
+            }
+            return null;
+        }).then((payload) => {
+            return send(payload, req.params.id)
+                .then(json => {
+                    console.log(payload);
+                    res.json(payload);
+                });
+        });
     });
 
 export default router;
