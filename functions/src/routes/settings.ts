@@ -3,7 +3,7 @@ import * as admin from 'firebase-admin';
 
 const router = express.Router();
 
-router.use(function (req, res, next) {
+router.use((req, res, next) => {
     console.log(`settings/${req.url}`, '@', new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
     next();
 });

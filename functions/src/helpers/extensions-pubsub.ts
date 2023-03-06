@@ -40,7 +40,7 @@ function attachEnvironment(payload: any): any {
     return payload;
 }
 
-export async function send(payload: any, broadcaster_id: string) {
+export async function broadcast(payload: any, broadcaster_id: string) {
     try {
 
         const url = `https://api.twitch.tv/helix/extensions/pubsub?broadcaster_id=${broadcaster_id}`;

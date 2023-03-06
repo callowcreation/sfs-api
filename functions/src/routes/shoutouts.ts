@@ -1,12 +1,17 @@
 import * as express from 'express';
 import * as admin from 'firebase-admin';
-import { send } from '../helpers/extensions-pubsub';
+import { broadcast } from '../helpers/extensions-pubsub';
 
 const router = express.Router();
 
 const MAX_CHANNEL_SHOUTOUTS: number = 4;
 
-router.use(function (req, res, next) {
+const COLLECTIONS = {
+    STATS: 'stats',
+    SHOUTOUTS: 'shoutouts'
+};
+
+router.use((req, res, next) => {
     console.log(`shoutouts/${req.url}`, '@', new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
     next();
 });
@@ -22,18 +27,17 @@ router.route('/')
 
 router.route('/:id')
     .get((req, res) => {
-
-        const doc = admin.firestore().collection('shoutouts').doc(req.params.id);
+        const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
         doc.get().then(value => {
             if (!value.exists || value.data()?.sources.length === 0) {
-                collection()
+                admin.firestore().collection(COLLECTIONS.STATS)
                     .where('broadcaster_id', '==', req.params.id)
                     .orderBy('timestamp', 'desc')
                     .limit(4)
                     .get()
                     .then((snap: any) => snap.docs.map((x: any) => ({ key: x.id, data: x.data() })))
                     .then((records: any) => {
-                        const doc = admin.firestore().collection('shoutouts').doc(req.params.id);
+                        const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
                         doc.set({ sources: records.map((x: any) => x.key) });
                         res.json(records.map((x: any) => ({ key: x.key, ...x.data })));
                     });
@@ -41,7 +45,7 @@ router.route('/:id')
                 const sources: string[] = value.data()?.sources;
                 const promises: Promise<any>[] = [];
                 for (let i = 0; i < sources.length; i++) {
-                    promises.push(collection().doc(sources[i]).get().then(x => ({ key: x.id, ...x.data() })));
+                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(sources[i]).get().then(x => ({ key: x.id, ...x.data() })));
                 }
                 Promise.all(promises).then(records => {
                     console.log({ records })
@@ -58,8 +62,8 @@ router.route('/:id')
             poster_id: req.body.poster_id,
             timestamp: Date.now()
         };
-        collection().add(guest).then(snap => {
-            const doc = admin.firestore().collection('shoutouts').doc(req.params.id);
+        admin.firestore().collection(COLLECTIONS.STATS).add(guest).then(snap => {
+            const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
             doc.get().then(value => {
                 if (value.exists) {
                     const item = value.data() || [snap.id];
@@ -68,21 +72,16 @@ router.route('/:id')
                     return doc.update(item);
                 }
                 return doc.set({ sources: [snap.id] });
+            }).then(async () => {
+                await broadcast({ guest, action: 'shoutout' }, req.params.id);
+                return res.end();
             });
-
-            console.log(snap.id);
-            return send({ snap_id: snap.id }, req.params.id)
-                .then(json => {
-                    console.log({ json });
-                    res.json(snap.id);
-                });
         })
     });
 
 router.route('/:id/move-up')
     .put((req, res) => {
-
-        const doc = admin.firestore().collection('shoutouts').doc(req.params.id);
+        const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
         doc.get().then(value => {
             if (value.exists) {
                 const item = value.data() || [];
@@ -95,24 +94,19 @@ router.route('/:id/move-up')
                 return doc.update(item).then(() => ({ index, action: 'move-up' }));
             }
             return null;
-        }).then((payload) => {
-            return send(payload, req.params.id)
-                .then(json => {
-                    console.log(payload);
-                    res.json(payload);
-                });
+        }).then(async (payload) => {
+            if(!payload) return res.status(404).end();
+            await broadcast(payload, req.params.id);
+            return res.json(payload);
         });
     });
 
 export default router;
 
-function collection() {
-    return admin.firestore().collection('stats');
-}
-
 async function migrateLegacy(broadcaster_id: string) {
 
     const statRef = admin.database().ref(`${broadcaster_id}/stats`);
+    const statCol = admin.firestore().collection(COLLECTIONS.STATS);
 
     const stats = await statRef.once('value').then(snap => snap.val());
     if (!stats) return;
@@ -123,7 +117,7 @@ async function migrateLegacy(broadcaster_id: string) {
                 for (const key in stats[streamer][poster]) {
                     const timestamp = stats[streamer][poster][key];
                     const stat = { legacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
-                    await collection().add(stat);
+                    await statCol.add(stat);
                     await statRef.child(`${streamer}/${poster}/${key}`).remove();
                 }
             }
