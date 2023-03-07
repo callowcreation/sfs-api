@@ -1,10 +1,11 @@
 import * as express from 'express';
 import * as admin from 'firebase-admin';
+import timestamp from '../helpers/timestamp';
 
 const router = express.Router();
 
 router.use((req, res, next) => {
-    console.log(`channels/${req.url}`, '@', new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    console.log(`channels ${req.url}`, '@', timestamp());
     next();
 });
 

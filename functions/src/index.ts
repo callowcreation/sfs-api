@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from 'firebase-admin';
 import * as express from 'express';
+import { Request, Response, Application } from 'express';
 import * as cors from 'cors';
 
 import channels from './routes/channels';
@@ -12,7 +13,7 @@ admin.initializeApp({
     databaseURL: 'https://shoutoutsdev-38a1d.firebaseio.com'
 });
 
-const app = express();
+const app: Application = express();
 
 app.use(cors({ origin: true }));
 
@@ -21,7 +22,7 @@ app.use('/channels', channels);
 app.use('/settings', settings);
 app.use('/shoutouts', shoutouts);
 
-app.get('/', async (req, res) => {
+app.get('/', async (req: Request, res: Response) => {
     res.send('Welcome to Terra');
 });
 

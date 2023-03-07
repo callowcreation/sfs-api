@@ -1,6 +1,9 @@
 import * as express from 'express';
+
 import * as admin from 'firebase-admin';
 import { broadcast } from '../helpers/extensions-pubsub';
+import timestamp from '../helpers/timestamp';
+import PinItem, { Pinner } from '../interfaces/pin-item';
 
 const router = express.Router();
 
@@ -8,11 +11,12 @@ const MAX_CHANNEL_SHOUTOUTS: number = 4;
 
 const COLLECTIONS = {
     STATS: 'stats',
-    SHOUTOUTS: 'shoutouts'
+    SHOUTOUTS: 'shoutouts',
+    PINS: 'pins'
 };
 
 router.use((req, res, next) => {
-    console.log(`shoutouts/${req.url}`, '@', new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    console.log(`shoutouts ${req.url}`, '@', timestamp());
     next();
 });
 
@@ -60,7 +64,7 @@ router.route('/:id')
             broadcaster_id: req.params.id,
             streamer_id: req.body.streamer_id,
             poster_id: req.body.poster_id,
-            timestamp: Date.now()
+            timestamp: timestamp().getTime()
         };
         admin.firestore().collection(COLLECTIONS.STATS).add(guest).then(snap => {
             const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
@@ -84,7 +88,7 @@ router.route('/:id/move-up')
         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
         doc.get().then(value => {
             if (value.exists) {
-                const item = value.data() || [];
+                const item = value.data() || { sources: [] };
                 console.log({ sources: item.sources })
                 const index = item.sources.findIndex((x: any) => x === req.body.key);
 
@@ -95,13 +99,56 @@ router.route('/:id/move-up')
             }
             return null;
         }).then(async (payload) => {
-            if(!payload) return res.status(404).end();
+            if (!payload) return res.status(404).end();
             await broadcast(payload, req.params.id);
             return res.json(payload);
         });
     });
+    
+router.route('/:id/pin-item')
+    .get((req, res) => {
+        getPinItem(req.params.id)
+            .then(async (value: PinItem[]) => {
+                const values: Pinner[] = value.map(x => ({ key: x.data.key, pinner_id: x.data.pinner_id }));
+                const promises: Promise<any>[] = [];
+                for (let i = 0; i < values.length; i++) {
+                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(values[i].key).get().then(x => ({ key: x.id, ...x.data(), pinner_id: values[i].pinner_id })));
+                }
+                const records = await Promise.all(promises);
+                return res.json(records);
+            });
+    })
+    .put((req, res) => {
+        const enDate = timestamp().getTime() + (1000 * 10);
+        const expireAt: Date = new Date(enDate);
+
+        admin.firestore().collection(COLLECTIONS.PINS)
+            .add({ broadcaster_id: req.params.id, pinner_id: req.body.pinner_id, key: req.body.key, expireAt })
+            .then(async () => {
+                const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id)
+                const value = await doc.get();
+                if(!value.exists) return null;
+
+                const item = value.data() || { sources: [] };
+                const index = item.sources.findIndex((x: any) => x === req.body.key);
+                item.sources.splice(index, 1);
+                return doc.update(item).then(() => ({ index, action: 'pin-item', expireAt }));
+            }).then(async (payload) => {
+                if (!payload) return res.status(404).end();
+                await broadcast(payload, req.params.id);
+                return res.json(payload);
+            });
+    });
 
 export default router;
+
+async function getPinItem(broadcaster_id: string) {
+    return admin.firestore().collection(COLLECTIONS.PINS)
+        .where('broadcaster_id', '==', broadcaster_id)
+        .limit(1)
+        .get()
+        .then(snap => snap.docs.map((x: any) => ({ key: x.id, data: x.data() })));
+}
 
 async function migrateLegacy(broadcaster_id: string) {
 

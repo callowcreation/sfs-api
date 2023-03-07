@@ -34,9 +34,11 @@ function makeServerToken(broadcaster_id: string): string {
 }
 
 function attachEnvironment(payload: any): any {
-    payload.cycle = CYCLE;
-    payload.version = CREDENTIALS.EXTENSION_VERSION;
-    payload.timestamp = Date.now();
+    payload.environment = {
+        cycle: CYCLE,
+        version: CREDENTIALS.EXTENSION_VERSION,
+        timestamp: Date.now(),
+    };
     return payload;
 }
 
@@ -57,6 +59,7 @@ export async function broadcast(payload: any, broadcaster_id: string) {
 
         return fetch(url, { method: 'POST', headers, body });
     } catch (error) {
+
         return error;
     }
 }

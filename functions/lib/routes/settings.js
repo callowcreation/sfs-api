@@ -2,9 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express = require("express");
 const admin = require("firebase-admin");
+const timestamp_1 = require("../helpers/timestamp");
 const router = express.Router();
-router.use(function (req, res, next) {
-    console.log(`settings/${req.url}`, '@', new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+router.use((req, res, next) => {
+    console.log(`settings ${req.url}`, '@', (0, timestamp_1.default)());
     next();
 });
 router.route('/')
