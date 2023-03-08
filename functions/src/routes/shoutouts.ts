@@ -143,7 +143,7 @@ router.route('/:id/pin-item')
                 const item = value.data() || { sources: [] };
                 const index = item.sources.findIndex((x: any) => x === req.body.key);
                 item.sources.splice(index, 1);
-                return doc.update(item).then(() => ({ index, action: 'pin-item', expireAt }));
+                return doc.update(item).then(() => ({ index, action: 'pin-item', expireAt, pinner_id: req.body.pinner_id }));
             }).then(async (payload) => {
                 if (!payload) return res.status(404).end();
                 await broadcast(payload, req.params.id);
