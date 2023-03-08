@@ -3,6 +3,7 @@ import * as express from 'express';
 import * as admin from 'firebase-admin';
 import { broadcast } from '../helpers/extensions-pubsub';
 import timestamp from '../helpers/timestamp';
+import { Guest } from '../interfaces/guest';
 import PinItem, { Pinner } from '../interfaces/pin-item';
 
 const router = express.Router();
@@ -71,15 +72,24 @@ router.route('/:id')
             const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
             doc.get().then(value => {
                 if (value.exists) {
-                    const item = value.data() || [snap.id];
-                    item.sources.unshift(snap.id);
-                    item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
-                    return doc.update(item);
+                    return shoutoutsToGuests(req.params.id)
+                        .then(records => {
+                            const item = value.data() || [snap.id];
+                            console.log({ records });
+                            const index = records.findIndex(x => x.streamer_id === guest.streamer_id)
+                            if (index !== -1) {
+                                item.sources.splice(index, 1);
+                            }
+
+                            item.sources.unshift(snap.id);
+                            item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
+                            return doc.update(item);
+                        });
                 }
                 return doc.set({ sources: [snap.id] });
             }).then(async () => {
                 await broadcast({ guest, action: 'shoutout', max_channel_shoutouts: MAX_CHANNEL_SHOUTOUTS }, req.params.id);
-                return res.json({source: snap.id});
+                return res.json({ source: snap.id });
             }).catch(err => res.status(500).send(err));
         })
     });
@@ -105,7 +115,7 @@ router.route('/:id/move-up')
             return res.json(payload);
         }).catch(err => res.status(500).send(err));
     });
-    
+
 router.route('/:id/pin-item')
     .get((req, res) => {
         getPinItem(req.params.id)
@@ -128,7 +138,7 @@ router.route('/:id/pin-item')
             .then(async () => {
                 const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id)
                 const value = await doc.get();
-                if(!value.exists) return null;
+                if (!value.exists) return null;
 
                 const item = value.data() || { sources: [] };
                 const index = item.sources.findIndex((x: any) => x === req.body.key);
@@ -142,6 +152,17 @@ router.route('/:id/pin-item')
     });
 
 export default router;
+
+async function shoutoutsToGuests(broadcaster_id: string): Promise<Guest[]> {
+    const value = await admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(broadcaster_id).get();
+    const sources: string[] = value.data()?.sources;
+    const promises: Promise<Guest>[] = [];
+    const statsCol = admin.firestore().collection(COLLECTIONS.STATS);
+    for (let i = 0; i < sources.length; i++) {
+        promises.push(statsCol.doc(sources[i]).get().then(x => ({ key: x.id, ...x.data() }) as Guest));
+    }
+    return Promise.all(promises);
+}
 
 async function getPinItem(broadcaster_id: string) {
     return admin.firestore().collection(COLLECTIONS.PINS)
