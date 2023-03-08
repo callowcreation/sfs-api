@@ -44,7 +44,7 @@ router.route('/:id')
                         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
                         doc.set({ sources: records.map((x: any) => x.key) });
                         res.json(records.map((x: any) => ({ key: x.key, ...x.data })));
-                    });
+                    }).catch(err => res.status(500).send(err));;
             } else {
                 const sources: string[] = value.data()?.sources;
                 const promises: Promise<any>[] = [];
@@ -54,7 +54,7 @@ router.route('/:id')
                 Promise.all(promises).then(records => {
                     console.log({ records })
                     res.json(records);
-                });
+                }).catch(err => res.status(500).send(err));
             }
         });
     })
@@ -66,6 +66,7 @@ router.route('/:id')
             poster_id: req.body.poster_id,
             timestamp: timestamp().getTime()
         };
+
         admin.firestore().collection(COLLECTIONS.STATS).add(guest).then(snap => {
             const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
             doc.get().then(value => {
@@ -77,9 +78,9 @@ router.route('/:id')
                 }
                 return doc.set({ sources: [snap.id] });
             }).then(async () => {
-                await broadcast({ guest, action: 'shoutout' }, req.params.id);
-                return res.end();
-            });
+                await broadcast({ guest, action: 'shoutout', max_channel_shoutouts: MAX_CHANNEL_SHOUTOUTS }, req.params.id);
+                return res.json({source: snap.id});
+            }).catch(err => res.status(500).send(err));
         })
     });
 
@@ -102,25 +103,25 @@ router.route('/:id/move-up')
             if (!payload) return res.status(404).end();
             await broadcast(payload, req.params.id);
             return res.json(payload);
-        });
+        }).catch(err => res.status(500).send(err));
     });
     
 router.route('/:id/pin-item')
     .get((req, res) => {
         getPinItem(req.params.id)
             .then(async (value: PinItem[]) => {
-                const values: Pinner[] = value.map(x => ({ key: x.data.key, pinner_id: x.data.pinner_id }));
+                const values: Pinner[] = value.map(x => ({ key: x.data.key, pinner_id: x.data.pinner_id, expireAt: x.data.expireAt }));
                 const promises: Promise<any>[] = [];
                 for (let i = 0; i < values.length; i++) {
-                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(values[i].key).get().then(x => ({ key: x.id, ...x.data(), pinner_id: values[i].pinner_id })));
+                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(values[i].key).get().then(x => ({ key: x.id, ...x.data(), pinner_id: values[i].pinner_id, expireAt: values[i].expireAt })));
                 }
                 const records = await Promise.all(promises);
                 return res.json(records);
-            });
+            }).catch(err => res.status(500).send(err));
     })
     .put((req, res) => {
         const enDate = timestamp().getTime() + (1000 * 10);
-        const expireAt: Date = new Date(enDate);
+        const expireAt: number = enDate;
 
         admin.firestore().collection(COLLECTIONS.PINS)
             .add({ broadcaster_id: req.params.id, pinner_id: req.body.pinner_id, key: req.body.key, expireAt })
@@ -137,7 +138,7 @@ router.route('/:id/pin-item')
                 if (!payload) return res.status(404).end();
                 await broadcast(payload, req.params.id);
                 return res.json(payload);
-            });
+            }).catch(err => res.status(500).send(err));
     });
 
 export default router;
@@ -147,7 +148,8 @@ async function getPinItem(broadcaster_id: string) {
         .where('broadcaster_id', '==', broadcaster_id)
         .limit(1)
         .get()
-        .then(snap => snap.docs.map((x: any) => ({ key: x.id, data: x.data() })));
+        .then(snap => snap.docs.map((x: any) => ({ key: x.id, data: x.data() })))
+        .catch(err => { throw err; });
 }
 
 async function migrateLegacy(broadcaster_id: string) {
@@ -165,7 +167,7 @@ async function migrateLegacy(broadcaster_id: string) {
                     const timestamp = stats[streamer][poster][key];
                     const stat = { legacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
                     await statCol.add(stat);
-                    await statRef.child(`${streamer}/${poster}/${key}`).remove();
+                    //await statRef.child(`${streamer}/${poster}/${key}`).remove();
                 }
             }
         }

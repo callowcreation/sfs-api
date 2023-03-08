@@ -19,7 +19,7 @@ router.route('/:id')
         getChannelSettings(req.params.id)
             .then(settings => {
                 res.json(settings);
-            });
+            }).catch(err => res.status(500).send(err));
     });
 
 router.route('/:id/behaviours')
@@ -36,7 +36,7 @@ router.route('/:id/behaviours')
                     'badge-vip': settings['badge-vip'],
                     'commands': settings.commands
                 });
-            });
+            }).catch(err => res.status(500).send(err));
     });
 
 export default router;
@@ -48,5 +48,6 @@ function getChannelSettingsRef(broadcaster_id: string) {
 function getChannelSettings(broadcaster_id: string) {
     return getChannelSettingsRef(broadcaster_id)
         .once('value')
-        .then(snap => snap.val());
+        .then(snap => snap.val())
+        .catch(err => { throw err });
 }

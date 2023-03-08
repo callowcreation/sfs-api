@@ -17,7 +17,7 @@ router.route('/')
                 .then((snap: any) => snap.docs.map((x: any) => x.data().broadcaster_id))
                 .then((records: string[]) => {
                     res.json(records);
-                });
+                }).catch(err => res.status(500).send(err));
         }).catch(e => {
             res.status(500).send(`channel ids migration incomplete`);
         });

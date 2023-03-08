@@ -2,7 +2,7 @@
 export interface PinData {
     broadcaster_id: string,
     pinner_id: string,
-    expireAt: Date,
+    expireAt: number,
     key: string
 }
 
@@ -13,5 +13,6 @@ export default interface PinItem {
 
 export interface Pinner {
     key: string;
-    pinner_id: string
+    pinner_id: string;
+    expireAt: number;
 }
