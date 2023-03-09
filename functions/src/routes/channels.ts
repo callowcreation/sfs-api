@@ -1,11 +1,10 @@
 import * as express from 'express';
 import * as admin from 'firebase-admin';
-import timestamp from '../helpers/timestamp';
 
 const router = express.Router();
 
 router.use((req, res, next) => {
-    console.log(`channels ${req.url}`, '@', timestamp());
+    console.log(`channels ${req.url}`, '@', Date.now());
     next();
 });
 

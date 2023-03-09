@@ -2,7 +2,6 @@ import * as express from 'express';
 
 import * as admin from 'firebase-admin';
 import { broadcast } from '../helpers/extensions-pubsub';
-import timestamp from '../helpers/timestamp';
 import { Guest } from '../interfaces/guest';
 import PinItem, { Pinner } from '../interfaces/pin-item';
 
@@ -17,7 +16,7 @@ const COLLECTIONS = {
 };
 
 router.use((req, res, next) => {
-    console.log(`shoutouts ${req.url}`, '@', timestamp());
+    console.log(`shoutouts ${req.url}`, '@', Date.now());
     next();
 });
 
@@ -47,12 +46,7 @@ router.route('/:id')
                         res.json(records.map((x: any) => ({ key: x.key, ...x.data })));
                     }).catch(err => res.status(500).send(err));;
             } else {
-                const sources: string[] = value.data()?.sources;
-                const promises: Promise<any>[] = [];
-                for (let i = 0; i < sources.length; i++) {
-                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(sources[i]).get().then(x => ({ key: x.id, ...x.data() })));
-                }
-                Promise.all(promises).then(records => {
+                getGuests(value.data()?.sources).then(records => {
                     console.log({ records })
                     res.json(records);
                 }).catch(err => res.status(500).send(err));
@@ -65,26 +59,23 @@ router.route('/:id')
             broadcaster_id: req.params.id,
             streamer_id: req.body.streamer_id,
             poster_id: req.body.poster_id,
-            timestamp: timestamp().getTime()
+            timestamp: Date.now()
         };
 
         admin.firestore().collection(COLLECTIONS.STATS).add(guest).then(snap => {
             const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
-            doc.get().then(value => {
+            doc.get().then(async value => {
                 if (value.exists) {
-                    return shoutoutsToGuests(req.params.id)
-                        .then(records => {
-                            const item = value.data() || [snap.id];
-                            console.log({ records });
-                            const index = records.findIndex(x => x.streamer_id === guest.streamer_id)
-                            if (index !== -1) {
-                                item.sources.splice(index, 1);
-                            }
-
-                            item.sources.unshift(snap.id);
-                            item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
-                            return doc.update(item);
-                        });
+                    const records = await shoutoutsToGuests(req.params.id);
+                    const item = value.data() || [snap.id];
+                    console.log({ records });
+                    const index = records.findIndex(x => x.streamer_id === guest.streamer_id);
+                    if (index !== -1) {
+                        item.sources.splice(index, 1);
+                    }
+                    item.sources.unshift(snap.id);
+                    item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
+                    return await doc.update(item);
                 }
                 return doc.set({ sources: [snap.id] });
             }).then(async () => {
@@ -130,7 +121,7 @@ router.route('/:id/pin-item')
             }).catch(err => res.status(500).send(err));
     })
     .put((req, res) => {
-        const enDate = timestamp().getTime() + (1000 * 10);
+        const enDate = Date.now() + (1000 * 10);
         const expireAt: number = enDate;
 
         admin.firestore().collection(COLLECTIONS.PINS)
@@ -156,6 +147,10 @@ export default router;
 async function shoutoutsToGuests(broadcaster_id: string): Promise<Guest[]> {
     const value = await admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(broadcaster_id).get();
     const sources: string[] = value.data()?.sources;
+    return getGuests(sources);
+}
+
+function getGuests(sources: string[]): Promise<Guest[]> {
     const promises: Promise<Guest>[] = [];
     const statsCol = admin.firestore().collection(COLLECTIONS.STATS);
     for (let i = 0; i < sources.length; i++) {

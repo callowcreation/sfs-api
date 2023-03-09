@@ -27,12 +27,30 @@ app.get('/', async (req: Request, res: Response) => {
     res.send('Welcome to Terra');
 });
 
+async function deleteExpiredPins() {
+    console.log(`running deleteExpiredPins...`)
+    return admin.firestore().collection('pins')
+        .where('expireAt', '<=', Date.now())
+        .get()
+        .then(snap => {
+
+console.log(`snap.docs.length=${snap.docs.length}`)
+            return snap.docs.forEach(doc => doc.ref.delete());
+        })
+        .catch(err => { {
+            console.error(err)
+            throw err;
+        } });
+}
 
 // // Start writing functions
 // // https://firebase.google.com/docs/functions/typescript
 //
 exports.app = functions.https.onRequest(app);
 
+export const monitorPinnedTTL = functions.pubsub.schedule('*/1 * * * *').onRun(context => {
+    return deleteExpiredPins();
+});
 /*export const shoutoutsUpdate = functions.firestore.document('shoutouts/{id}').onUpdate((change, context) => {
     const after = change.after.data();
     console.log({ after, context });
