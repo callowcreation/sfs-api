@@ -81,6 +81,22 @@ router.route('/:id')
                 return res.json({ source: snap.id });
             }).catch(err => res.status(500).send(err));
         })
+    })
+    .delete(async (req, res) => {
+        const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
+        const value = await doc.get();
+        if (!value.exists) return res.status(404).end();
+    
+        const item = value.data() || { sources: [] };
+        const index = item.sources.findIndex((x: any) => x === req.query.key);
+        item.sources.splice(index, 1);
+        await doc.update(item);
+        const payload = {
+            action: 'item-remove',
+            index: index
+        };
+        await broadcast(payload, req.params.id);
+        return res.status(204).end();
     });
 
 router.route('/:id/move-up')
@@ -140,41 +156,10 @@ router.route('/:id/pin-item')
             }).catch(err => res.status(500).send(err));
     })
     .delete(async (req, res) => {
-        await deletePin(req.params.id)
-            .then(payload => {
-                if (!payload) res.status(404).end();
-                return res.json(payload);
-            }).catch(err => res.status(500).send(err.message));
-
-        // admin.firestore().collection(COLLECTIONS.PINS)
-        //     .where('broadcaster_id', '==', req.params.id)
-        //     .orderBy('expire_at', 'desc')
-        //     .limit(1)
-        //     .get()
-        //     .then(async (snap) => {
-        //         if (snap.empty) return res.status(404).end();
-
-        //         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
-        //         return doc.get().then(async value => {
-
-        //             const key = snap.docs[0].data().key;
-        //             console.log({key}, snap.docs[0].data().key)
-
-        //             if (value.exists) {
-        //                 const item = value.data() || { sources: [] };
-        //                 item.sources.unshift(key);
-        //                 item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
-        //                 return await doc.update(item);
-        //             }
-        //             return doc.set({ sources: [key] });
-        //         }).then(async () => {
-        //             console.log(snap.docs[0].data().pinner_id)
-        //             await snap.docs[0].ref.delete();
-        //             const payload = { key: snap.docs[0].id, action: 'pin-item-remove', max_channel_shoutouts: MAX_CHANNEL_SHOUTOUTS };
-        //             await broadcast(payload, req.params.id);
-        //             return res.json(payload);
-        //         }).catch(err => res.status(500).send(err.message));
-        //     }).catch(err => res.status(500).send(err.message));
+        await deletePin(req.params.id).then(payload => {
+            if (!payload) res.status(404).end();
+            return res.json(payload);
+        }).catch(err => res.status(500).send(err.message));
     });
 
 export default router;
