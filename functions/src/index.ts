@@ -77,7 +77,7 @@ export const pinsUpdate = functions.firestore.document('pins/{id}').onDelete((ch
     const data = change.data();
     console.log({ ...data, id: change.id });
 
-    const payload = { key: data.key, action: 'pin-item-remove' };
+    const payload = { key: data.key, action: 'pin-item-remove', max_channel_shoutouts: MAX_CHANNEL_SHOUTOUTS };
     return broadcast(payload, data.broadcaster_id);
 });
 

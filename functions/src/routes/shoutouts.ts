@@ -170,7 +170,7 @@ router.route('/:id/pin-item')
         //         }).then(async () => {
         //             console.log(snap.docs[0].data().pinner_id)
         //             await snap.docs[0].ref.delete();
-        //             const payload = { key: snap.docs[0].id, action: 'pin-item-remove' };
+        //             const payload = { key: snap.docs[0].id, action: 'pin-item-remove', max_channel_shoutouts: MAX_CHANNEL_SHOUTOUTS };
         //             await broadcast(payload, req.params.id);
         //             return res.json(payload);
         //         }).catch(err => res.status(500).send(err.message));
@@ -204,7 +204,7 @@ async function deletePin(broadcaster_id: string): Promise<any> {
         }
         await snap.docs[0].ref.delete();
 
-        const payload = { key: snap.docs[0].id, action: 'pin-item-remove' };
+        const payload = { key: snap.docs[0].id, action: 'pin-item-remove', max_channel_shoutouts: MAX_CHANNEL_SHOUTOUTS };
 
         console.log(snap.docs[0].data().pinner_id, payload);
 
