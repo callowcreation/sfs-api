@@ -1,5 +1,4 @@
 import * as express from 'express';
-
 import * as admin from 'firebase-admin';
 import { broadcast } from '../helpers/extensions-pubsub';
 import { Guest } from '../interfaces/guest';
@@ -7,7 +6,7 @@ import PinItem, { Pinner } from '../interfaces/pin-item';
 
 const router = express.Router();
 
-const MAX_CHANNEL_SHOUTOUTS: number = 4;
+export const MAX_CHANNEL_SHOUTOUTS: number = 4;
 
 const COLLECTIONS = {
     STATS: 'stats',
@@ -68,7 +67,6 @@ router.route('/:id')
                 if (value.exists) {
                     const records = await shoutoutsToGuests(req.params.id);
                     const item = value.data() || [snap.id];
-                    console.log({ records });
                     const index = records.findIndex(x => x.streamer_id === guest.streamer_id);
                     if (index !== -1) {
                         item.sources.splice(index, 1);
@@ -111,10 +109,10 @@ router.route('/:id/pin-item')
     .get((req, res) => {
         getPinItem(req.params.id)
             .then(async (value: PinItem[]) => {
-                const values: Pinner[] = value.map(x => ({ key: x.data.key, pinner_id: x.data.pinner_id, expireAt: x.data.expireAt }));
+                const values: Pinner[] = value.map(x => ({ key: x.data.key, pinner_id: x.data.pinner_id }));
                 const promises: Promise<any>[] = [];
                 for (let i = 0; i < values.length; i++) {
-                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(values[i].key).get().then(x => ({ key: x.id, ...x.data(), pinner_id: values[i].pinner_id, expireAt: values[i].expireAt })));
+                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(values[i].key).get().then(x => ({ key: x.id, ...x.data(), pinner_id: values[i].pinner_id })));
                 }
                 const records = await Promise.all(promises);
                 return res.json(records);
@@ -122,10 +120,10 @@ router.route('/:id/pin-item')
     })
     .put((req, res) => {
         const enDate = Date.now() + (1000 * 10);
-        const expireAt: number = enDate;
+        const expire_at: number = enDate;
 
         admin.firestore().collection(COLLECTIONS.PINS)
-            .add({ broadcaster_id: req.params.id, pinner_id: req.body.pinner_id, key: req.body.key, expireAt })
+            .add({ broadcaster_id: req.params.id, pinner_id: req.body.pinner_id, key: req.body.key, expire_at })
             .then(async () => {
                 const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id)
                 const value = await doc.get();
@@ -134,15 +132,87 @@ router.route('/:id/pin-item')
                 const item = value.data() || { sources: [] };
                 const index = item.sources.findIndex((x: any) => x === req.body.key);
                 item.sources.splice(index, 1);
-                return doc.update(item).then(() => ({ index, action: 'pin-item', expireAt, pinner_id: req.body.pinner_id }));
+                return doc.update(item).then(() => ({ index, action: 'pin-item', pinner_id: req.body.pinner_id }));
             }).then(async (payload) => {
                 if (!payload) return res.status(404).end();
                 await broadcast(payload, req.params.id);
                 return res.json(payload);
             }).catch(err => res.status(500).send(err));
+    })
+    .delete(async (req, res) => {
+        await deletePin(req.params.id)
+            .then(payload => {
+                if (!payload) res.status(404).end();
+                return res.json(payload);
+            }).catch(err => res.status(500).send(err.message));
+
+        // admin.firestore().collection(COLLECTIONS.PINS)
+        //     .where('broadcaster_id', '==', req.params.id)
+        //     .orderBy('expire_at', 'desc')
+        //     .limit(1)
+        //     .get()
+        //     .then(async (snap) => {
+        //         if (snap.empty) return res.status(404).end();
+
+        //         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
+        //         return doc.get().then(async value => {
+
+        //             const key = snap.docs[0].data().key;
+        //             console.log({key}, snap.docs[0].data().key)
+
+        //             if (value.exists) {
+        //                 const item = value.data() || { sources: [] };
+        //                 item.sources.unshift(key);
+        //                 item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
+        //                 return await doc.update(item);
+        //             }
+        //             return doc.set({ sources: [key] });
+        //         }).then(async () => {
+        //             console.log(snap.docs[0].data().pinner_id)
+        //             await snap.docs[0].ref.delete();
+        //             const payload = { key: snap.docs[0].id, action: 'pin-item-remove' };
+        //             await broadcast(payload, req.params.id);
+        //             return res.json(payload);
+        //         }).catch(err => res.status(500).send(err.message));
+        //     }).catch(err => res.status(500).send(err.message));
     });
 
 export default router;
+
+async function deletePin(broadcaster_id: string): Promise<any> {
+    try {
+        const snap = await admin.firestore().collection(COLLECTIONS.PINS)
+            .where('broadcaster_id', '==', broadcaster_id)
+            .orderBy('expire_at', 'desc')
+            .limit(1)
+            .get();
+
+        if (snap.empty) return null;
+
+        const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(broadcaster_id);
+        const value = await doc.get();
+
+        const key = snap.docs[0].data().key;
+        console.log({ key }, snap.docs[0].data().key);
+        if (value.exists) {
+            const item = value.data() || { sources: [] };
+            item.sources.unshift(key);
+            item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
+            await doc.update(item);
+        } else {
+            await doc.set({ sources: [key] });
+        }
+        await snap.docs[0].ref.delete();
+
+        const payload = { key: snap.docs[0].id, action: 'pin-item-remove' };
+
+        console.log(snap.docs[0].data().pinner_id, payload);
+
+        return broadcast(payload, broadcaster_id);
+    } catch (err) {
+        console.error(err);
+    }
+}
 
 async function shoutoutsToGuests(broadcaster_id: string): Promise<Guest[]> {
     const value = await admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(broadcaster_id).get();
@@ -183,7 +253,7 @@ async function migrateLegacy(broadcaster_id: string) {
                     const timestamp = stats[streamer][poster][key];
                     const stat = { legacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
                     await statCol.add(stat);
-                    //await statRef.child(`${streamer}/${poster}/${key}`).remove();
+                    await statRef.child(`${streamer}/${poster}/${key}`).remove();
                 }
             }
         }

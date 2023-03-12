@@ -6,8 +6,8 @@ import * as cors from 'cors';
 
 import channels from './routes/channels';
 import settings from './routes/settings';
-import shoutouts from './routes/shoutouts';
-// import { broadcast } from "./helpers/extensions-pubsub";
+import shoutouts, { MAX_CHANNEL_SHOUTOUTS } from './routes/shoutouts';
+import { broadcast } from "./helpers/extensions-pubsub";
 
 admin.initializeApp({
     credential: admin.credential.cert('./serviceAccountKeyDev.json'),
@@ -30,17 +30,37 @@ app.get('/', async (req: Request, res: Response) => {
 async function deleteExpiredPins() {
     console.log(`running deleteExpiredPins...`)
     return admin.firestore().collection('pins')
-        .where('expireAt', '<=', Date.now())
+        .where('expire_at', '<=', Date.now())
         .get()
         .then(snap => {
 
-console.log(`snap.docs.length=${snap.docs.length}`)
-            return snap.docs.forEach(doc => doc.ref.delete());
+            if (snap.docs.length > 0) console.log(`snap.docs.length=${snap.docs.length}`)
+
+            const promises: Promise<any>[] = [];
+            for (let i = 0; i < snap.docs.length; i++) {
+                const data = snap.docs[i].data();
+                const doc = admin.firestore().collection('shoutouts').doc(data.broadcaster_id);
+                const promise = doc.get().then(async value => {
+                    console.log({ expire_index: i, key: data.key })
+
+                    if (value.exists) {
+                        const item = value.data() || { sources: [] };
+                        item.sources.unshift(data.key);
+                        item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
+                        return await doc.update(item);
+                    }
+                    return doc.set({ sources: [data.key] });
+                }).then(() => snap.docs[i].ref.delete());
+                promises.push(promise);
+            }
+            return Promise.all(promises)
         })
-        .catch(err => { {
-            console.error(err)
-            throw err;
-        } });
+        .catch(err => {
+            {
+                console.error(err)
+                throw err;
+            }
+        });
 }
 
 // // Start writing functions
@@ -49,8 +69,18 @@ console.log(`snap.docs.length=${snap.docs.length}`)
 exports.app = functions.https.onRequest(app);
 
 export const monitorPinnedTTL = functions.pubsub.schedule('*/1 * * * *').onRun(context => {
+    console.log('sent delete')
     return deleteExpiredPins();
 });
+
+export const pinsUpdate = functions.firestore.document('pins/{id}').onDelete((change) => {
+    const data = change.data();
+    console.log({ ...data, id: change.id });
+
+    const payload = { key: data.key, action: 'pin-item-remove' };
+    return broadcast(payload, data.broadcaster_id);
+});
+
 /*export const shoutoutsUpdate = functions.firestore.document('shoutouts/{id}').onUpdate((change, context) => {
     const after = change.after.data();
     console.log({ after, context });
