@@ -19,6 +19,11 @@ router.route('/:id')
             .then(settings => {
                 res.json(settings);
             }).catch(err => res.status(500).send(err));
+    })
+    .put((req, res) => {
+        updateChannelSettings(req.params.id, req.body.values)
+            .then(() => res.json(req.body.values))
+            .catch(err => res.status(500).send(err));
     });
 
 router.route('/:id/behaviours')
@@ -49,4 +54,8 @@ function getChannelSettings(broadcaster_id: string) {
         .once('value')
         .then(snap => snap.val())
         .catch(err => { throw err });
+}
+
+function updateChannelSettings(broadcaster_id: string, values: any) {
+    return getChannelSettingsRef(broadcaster_id).update(values);
 }
