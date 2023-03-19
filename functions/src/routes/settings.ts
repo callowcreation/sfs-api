@@ -3,6 +3,18 @@ import * as admin from 'firebase-admin';
 
 const router = express.Router();
 
+const defaultSettings: any = {
+    'background-color': '#6441A5',
+    'border-color': '#808080',
+    'color': '#FFFFFF',
+    'auto-shoutouts': false,
+    'enable-bits': true,
+    'bits-tier': 'Tier 1',
+    'pin-days': 3,
+    'badge-vip': true,
+    'commands': ['so', 'shoutout'],
+};
+
 router.use((req, res, next) => {
     console.log(`settings ${req.url}`, '@', Date.now());
     next();
@@ -16,13 +28,27 @@ router.route('/')
 router.route('/:id')
     .get((req, res) => {
         getChannelSettings(req.params.id)
-            .then(settings => {
+            .then((settings: any) => {
+
+                if(!settings) settings = {};
+
+                Object.keys(defaultSettings).forEach((key: string) => {
+                    if (!Object.keys(settings).includes(key)) {
+                        settings[key] = defaultSettings[key];
+                    }
+                });
+
                 res.json(settings);
             }).catch(err => res.status(500).send(err));
     })
     .put((req, res) => {
-        updateChannelSettings(req.params.id, req.body.values)
-            .then(() => res.json(req.body.values))
+        const settings: any = JSON.parse(JSON.stringify(defaultSettings));
+
+        Object.keys(req.body.values).forEach((key: string) => {
+            settings[key] = req.body.values[key];
+        });
+        updateChannelSettings(req.params.id, settings)
+            .then(() => res.json(settings))
             .catch(err => res.status(500).send(err));
     });
 
