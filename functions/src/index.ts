@@ -68,6 +68,56 @@ async function deleteExpiredPins() {
 //
 exports.app = functions.https.onRequest(app);
 
+
+export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun(async (context) => {
+    console.log('sent migrate')
+
+    const statCol = admin.firestore().collection('stats');
+
+    const migrationCol = admin.firestore().collection('migration');
+
+    return migrationCol.where('migrage', '==', true).get().then(async (snap) => {
+
+        if (snap.docs.length > 0) console.log(`snap.docs.length=${snap.docs.length}`)
+
+        for (let i = 0; i < snap.docs.length; i++) {
+            const broadcaster_id = snap.docs[i].id;
+            const statRef = admin.database().ref(`${broadcaster_id}/stats`);
+            const stats = await statRef.once('value').then(snap => snap.val());
+            if (!stats) {
+                await migrationCol.doc(broadcaster_id).update({ migrage: false });
+                continue;
+            }
+            let counter = 0;
+            for (const streamer in stats) {
+                for (const poster in stats[streamer]) {
+                    for (const key in stats[streamer][poster]) {
+                        const timestamp = stats[streamer][poster][key];
+                        const stat = { legacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
+                        await statCol.add(stat);
+                        await statRef.child(`${streamer}/${poster}/${key}`).remove();
+                        counter++;
+                        if (counter === 250) {
+                            const total: number = await migrationCol.doc(broadcaster_id).get().then(value => {
+                                return value.exists ? value.data()?.total || 0 : 0;
+                            });
+
+                            await migrationCol.doc(broadcaster_id).update({ total: counter + total });
+                            return;
+                        }
+                    }
+                }
+            }
+            
+            const total: number = await migrationCol.doc(broadcaster_id).get().then(value => {
+                return value.exists ? value.data()?.total || 0 : 0;
+            });
+            await migrationCol.doc(broadcaster_id).update({ migrage: false, total: counter + total });
+            console.log(`Migration complete: ${broadcaster_id}`);
+        }
+    });
+});
+
 export const monitorPinnedTTL = functions.pubsub.schedule('*/1 * * * *').onRun(context => {
     console.log('sent delete')
     return deleteExpiredPins();

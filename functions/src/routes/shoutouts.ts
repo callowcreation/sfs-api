@@ -9,6 +9,7 @@ const router = express.Router();
 export const MAX_CHANNEL_SHOUTOUTS: number = 4;
 
 const COLLECTIONS = {
+    MIGRATION: 'migration',
     STATS: 'stats',
     SHOUTOUTS: 'shoutouts',
     PINS: 'pins'
@@ -21,10 +22,10 @@ router.use((req, res, next) => {
 
 router.route('/')
     .get((req, res) => {
-        migrateLegacy('75987197').then(() => {
-            res.send('✧ ComStar ✧');
+        migrateLegacy('75987197').then((data) => {
+            res.json({msg: '✧ ComStar ✧', data});
         }).catch(e => {
-            res.status(500).send(`${75987197} migration incomplete`)
+            res.status(500).json({message: `${75987197} migration incomplete`, error: e})
         });
     });
 
@@ -86,7 +87,7 @@ router.route('/:id')
         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
         const value = await doc.get();
         if (!value.exists) return res.status(404).end();
-    
+
         const item = value.data() || { sources: [] };
         const index = item.sources.findIndex((x: any) => x === req.query.key);
         item.sources.splice(index, 1);
@@ -223,15 +224,23 @@ async function getPinItem(broadcaster_id: string) {
         .catch(err => { throw err; });
 }
 
-async function migrateLegacy(broadcaster_id: string) {
+export async function migrateLegacy(broadcaster_id: string) {
 
     const statRef = admin.database().ref(`${broadcaster_id}/stats`);
-    const statCol = admin.firestore().collection(COLLECTIONS.STATS);
-
     const stats = await statRef.once('value').then(snap => snap.val());
-    if (!stats) return;
-
+    if (!stats) return -1;
+    
+    let counter: number = 0;
+    
     try {
+        const statCol = admin.firestore().collection(COLLECTIONS.STATS);
+        const migrationCol = admin.firestore().collection(COLLECTIONS.MIGRATION);
+        const total: number = await migrationCol.doc(broadcaster_id).get().then(value => {
+            return value.exists ? value.data()?.total || 0 : 0;
+        });
+        counter += total;
+        await migrationCol.doc(broadcaster_id).set({ migrage: true, total: counter });
+    
         for (const streamer in stats) {
             for (const poster in stats[streamer]) {
                 for (const key in stats[streamer][poster]) {
@@ -239,11 +248,20 @@ async function migrateLegacy(broadcaster_id: string) {
                     const stat = { legacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
                     await statCol.add(stat);
                     await statRef.child(`${streamer}/${poster}/${key}`).remove();
+                    counter++;
+                    if (counter === 250) {
+                        await migrationCol.doc(broadcaster_id).update({ total: counter });
+                        return counter;
+                    }
                 }
             }
         }
+        
+        await migrationCol.doc(broadcaster_id).update({ migrage: false, total: counter });
+        console.log(`FULL Migration complete: ${broadcaster_id}`);
+        return counter;
     } catch (e) {
-        console.error(`Cound not create entry for ${broadcaster_id}`, e);
-        throw e;
+        console.error(`counter ${counter} - Cound not create entry for ${broadcaster_id}`, e);
+        throw new Error(JSON.stringify({message: `counter ${counter} - Cound not create entry for ${broadcaster_id}`, counter, error: e}));
     }
 }

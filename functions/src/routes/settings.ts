@@ -30,7 +30,7 @@ router.route('/:id')
         getChannelSettings(req.params.id)
             .then((settings: any) => {
 
-                if(!settings) settings = {};
+                if (!settings) settings = {};
 
                 Object.keys(defaultSettings).forEach((key: string) => {
                     if (!Object.keys(settings).includes(key)) {
@@ -42,14 +42,29 @@ router.route('/:id')
             }).catch(err => res.status(500).send(err));
     })
     .put((req, res) => {
-        const settings: any = JSON.parse(JSON.stringify(defaultSettings));
 
-        Object.keys(req.body.values).forEach((key: string) => {
-            settings[key] = req.body.values[key];
-        });
-        updateChannelSettings(req.params.id, settings)
-            .then(() => res.json(settings))
-            .catch(err => res.status(500).send(err));
+        getChannelSettings(req.params.id)
+            .then((settings: any) => {
+
+                if (!settings) settings = {};
+
+                Object.keys(defaultSettings).forEach((key: string) => {
+                    if (!Object.keys(settings).includes(key)) {
+                        settings[key] = defaultSettings[key];
+                    }
+                });
+
+                Object.keys(req.body.values).forEach((key: string) => {
+                    settings[key] = req.body.values[key];
+                });
+
+                return updateChannelSettings(req.params.id, settings)
+                    .then(() => res.json(settings))
+                    .catch(err => res.status(500).send(err));
+
+            }).catch(err => res.status(500).send(err));
+
+
     });
 
 router.route('/:id/behaviours')
