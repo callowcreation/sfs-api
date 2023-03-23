@@ -2,7 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import * as admin from 'firebase-admin';
 import { broadcast } from '../helpers/extensions-pubsub';
 import { Guest } from '../interfaces/guest';
-import PinItem, { PinData, Pinner } from '../interfaces/pin-item';
+import { Migrations } from '../interfaces/migrations';
+import PinItem, { Pinner } from '../interfaces/pin-item';
 import { verifyExtension } from '../middleware/verify-extension';
 
 const router = Router();
@@ -24,9 +25,9 @@ router.use((req: Request, res: Response, next: NextFunction) => {
 router.route('/')
     .get((req: Request, res: Response) => {
         migrateLegacy('75987197').then((data) => {
-            res.json({msg: '✧ ComStar ✧', data});
+            res.json({ msg: '✧ ComStar ✧', data });
         }).catch(e => {
-            res.status(500).json({message: `${75987197} migration incomplete`, error: e})
+            res.status(500).json({ message: `${75987197} migration incomplete`, error: e })
         });
     });
 
@@ -101,8 +102,21 @@ router.route('/:id')
         return res.status(204).end();
     });
 
+router.route('/:id/migration')
+    .get(async (req: Request, res: Response) => {
+        const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
+        const migrate: Migrations.Stats | null = await migrationCol.doc(req.params.id).get().then(value => {
+            return value.exists ? value.data() as Migrations.Stats : null;
+        });
+        if (migrate) {
+            res.json(migrate);
+        } else {
+            res.status(404).end();
+        }
+    });
+
 router.route('/:id/move-up')
-    .put((req: Request, res: Response) => {
+    .patch((req: Request, res: Response) => {
         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
         doc.get().then(value => {
             if (value.exists) {
@@ -130,13 +144,18 @@ router.route('/:id/pin-item')
                 const values: Pinner[] = value.map(x => ({ key: x.data.key, pinner_id: x.data.pinner_id }));
                 const promises: Promise<any>[] = [];
                 for (let i = 0; i < values.length; i++) {
-                    promises.push(admin.firestore().collection(COLLECTIONS.STATS).doc(values[i].key).get().then(x => ({ key: x.id, ...x.data(), pinner_id: values[i].pinner_id })));
+                    promises.push(
+                        admin.firestore().collection(COLLECTIONS.STATS)
+                            .doc(values[i].key)
+                            .get()
+                            .then(x => ({ key: x.id, ...x.data(), pinner_id: values[i].pinner_id }))
+                    );
                 }
                 const records = await Promise.all(promises);
                 return res.json(records);
             }).catch(err => res.status(500).send(err));
     })
-    .put((req: Request, res: Response) => {
+    .patch((req: Request, res: Response) => {
         const enDate = Date.now() + (1000 * 10);
         const expire_at: number = enDate;
 
@@ -216,10 +235,7 @@ function getGuests(sources: string[]): Promise<Guest[]> {
     return Promise.all(promises);
 }
 
-async function getPinItem(broadcaster_id: string): Promise<{
-    key: string;
-    data: PinData;
-}[]> {
+async function getPinItem(broadcaster_id: string): Promise<PinItem[]> {
     return admin.firestore().collection(COLLECTIONS.PINS)
         .where('broadcaster_id', '==', broadcaster_id)
         .limit(1)
@@ -232,19 +248,23 @@ export async function migrateLegacy(broadcaster_id: string): Promise<number> {
 
     const statRef = admin.database().ref(`${broadcaster_id}/stats`);
     const stats = await statRef.once('value').then(snap => snap.val());
-    if (!stats) return -1;
-    
+    const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
+    if (!stats) {
+        await migrationCol.doc(broadcaster_id).update({ migrate: false })
+            .then(() => sendMigrationComplete(broadcaster_id));
+        return -1;
+    }
+
     let counter: number = 0;
-    
+
     try {
         const statCol = admin.firestore().collection(COLLECTIONS.STATS);
-        const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
         const total: number = await migrationCol.doc(broadcaster_id).get().then(value => {
             return value.exists ? value.data()?.total || 0 : 0;
         });
         counter += total;
-        await migrationCol.doc(broadcaster_id).set({ migrage: true, total: counter });
-    
+        await migrationCol.doc(broadcaster_id).set({ migrate: true, total: counter });
+
         for (const streamer in stats) {
             for (const poster in stats[streamer]) {
                 for (const key in stats[streamer][poster]) {
@@ -260,12 +280,19 @@ export async function migrateLegacy(broadcaster_id: string): Promise<number> {
                 }
             }
         }
-        
-        await migrationCol.doc(broadcaster_id).update({ migrage: false, total: counter });
+
+        await migrationCol.doc(broadcaster_id).update({ migrate: false, total: counter })
+            .then(() => sendMigrationComplete(broadcaster_id));
+
         console.log(`FULL Migration complete: ${broadcaster_id}`);
         return counter;
     } catch (e) {
         console.error(`counter ${counter} - Cound not create entry for ${broadcaster_id}`, e);
-        throw new Error(JSON.stringify({message: `counter ${counter} - Cound not create entry for ${broadcaster_id}`, counter, error: e}));
+        throw new Error(JSON.stringify({ message: `counter ${counter} - Cound not create entry for ${broadcaster_id}`, counter, error: e }));
     }
+}
+
+export async function sendMigrationComplete(broadcaster_id: string) {
+    await admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(broadcaster_id).delete();
+    return await broadcast({ action: 'migration' }, broadcaster_id);
 }

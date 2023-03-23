@@ -6,7 +6,7 @@ import * as cors from 'cors';
 
 import channels from './routes/channels';
 import settings from './routes/settings';
-import shoutouts, { COLLECTIONS, MAX_CHANNEL_SHOUTOUTS } from './routes/shoutouts';
+import shoutouts, { COLLECTIONS, MAX_CHANNEL_SHOUTOUTS, sendMigrationComplete } from './routes/shoutouts';
 import { broadcast } from "./helpers/extensions-pubsub";
 
 admin.initializeApp({
@@ -76,7 +76,7 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
 
     const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
 
-    return migrationCol.where('migrage', '==', true).get().then(async (snap) => {
+    return migrationCol.where('migrate', '==', true).get().then(async (snap) => {
 
         if (snap.docs.length > 0) console.log(`snap.docs.length=${snap.docs.length}`)
 
@@ -85,7 +85,8 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
             const statRef = admin.database().ref(`${broadcaster_id}/stats`);
             const stats = await statRef.once('value').then(snap => snap.val());
             if (!stats) {
-                await migrationCol.doc(broadcaster_id).update({ migrage: false });
+                await migrationCol.doc(broadcaster_id).update({ migrate: false })
+                    .then(() => sendMigrationComplete(broadcaster_id));
                 continue;
             }
             let counter = 0;
@@ -108,11 +109,12 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
                     }
                 }
             }
-            
+
             const total: number = await migrationCol.doc(broadcaster_id).get().then(value => {
                 return value.exists ? value.data()?.total || 0 : 0;
             });
-            await migrationCol.doc(broadcaster_id).update({ migrage: false, total: counter + total });
+            await migrationCol.doc(broadcaster_id).update({ migrate: false, total: counter + total })
+                .then(() => sendMigrationComplete(broadcaster_id));
             console.log(`Migration complete: ${broadcaster_id}`);
         }
     });

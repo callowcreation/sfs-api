@@ -48,7 +48,7 @@ router.route('/:id')
     .patch((req: Request, res: Response) => {
 
         getChannelSettings(req.params.id)
-            .then((settings: Settings | any) => {
+            .then(async (settings: Settings | any) => {
 
                 if (!settings) settings = defaultSettings;
 
@@ -62,19 +62,20 @@ router.route('/:id')
                     settings[key] = req.body.values[key];
                 });
 
-                return updateChannelSettings(req.params.id, settings)
-                    .then(() => res.json(settings))
-                    .catch(err => res.status(500).send(err));
+                try {
+                    await updateChannelSettings(req.params.id, settings);
+                    return res.json(settings);
+                } catch (err) {
+                    return res.status(500).send(err);
+                }
 
             }).catch(err => res.status(500).send(err));
-
-
     });
 
 router.route('/:id/behaviours')
     .get((req: Request, res: Response) => {
         getChannelSettings(req.params.id)
-            .then(settings => {
+            .then((settings: Settings) => {
                 if (!settings.commands) settings.commands = [];
                 if (settings.commands.length === 0) {
                     settings.commands.push(...['so', 'shoutout']);

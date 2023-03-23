@@ -1,10 +1,9 @@
 import { NextFunction, Request, Response } from "express";
-// import * as jsonwebtoken from 'jsonwebtoken';
-// import { CREDENTIALS } from "../constants/environment";
+import * as jsonwebtoken from 'jsonwebtoken';
+import { CREDENTIALS } from "../constants/environment";
 
 export function verifyExtension(req: Request, res: Response, next: NextFunction) {
-    next();
-    /*const authorization = req.headers.authorization;
+    const authorization = req.headers.authorization;
     const bearerPrefix = 'Bearer ';
     if (authorization && authorization.startsWith(bearerPrefix)) {
         try {
@@ -18,5 +17,5 @@ export function verifyExtension(req: Request, res: Response, next: NextFunction)
         }
     } else {
         res.status(400).end();
-    }*/
+    }
 }
