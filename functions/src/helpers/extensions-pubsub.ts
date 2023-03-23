@@ -1,20 +1,6 @@
 import * as jsonwebtoken from 'jsonwebtoken';
 import fetch from 'node-fetch';
-
-const CYCLES = {
-    DEV: 'dev',
-    PROD: 'prod',
-    STAGED: 'staged'
-};
-
-const CYCLE = process.env.FUNCTIONS_EMULATOR ? CYCLES.DEV : (process.env.GCLOUD_PROJECT === 'shoutoutsdev-38a1d' ? CYCLES.STAGED : CYCLES.PROD);
-
-const CREDENTIALS = {
-    EXTENSION_VERSION: process.env.EXTENSION_VERSION as string,
-    EXTENSION_OWNER_ID: process.env.EXTENSION_VERSION as string,
-    EXTENSION_CLIENT_ID: process.env.EXTENSION_CLIENT_ID as string,
-    EXTENSION_SECRET: process.env.EXTENSION_SECRET as string
-};
+import { CREDENTIALS, CYCLE } from '../constants/environment';
 
 // our tokens for pubsub expire after 30 seconds
 const SERVER_TOKEN_TTL_SECONDS: number = 30;

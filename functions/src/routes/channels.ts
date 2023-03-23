@@ -1,47 +1,44 @@
-import * as express from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import * as admin from 'firebase-admin';
+import { DataSnapshot, Reference } from 'firebase-admin/database';
+import { CollectionReference, DocumentData, DocumentSnapshot } from 'firebase-admin/firestore';
 
-const router = express.Router();
+const router = Router();
 
-router.use((req, res, next) => {
+router.use((req: Request, res: Response, next: NextFunction) => {
     console.log(`channels ${req.url}`, '@', Date.now());
     next();
 });
 
 router.route('/')
-    .get((req, res) => {
+    .get((req: Request, res: Response) => {
         migrateLegacy().then(() => {
-            collection()
+            collection().doc('ids')
                 .get()
-                .then((snap: any) => snap.docs.map((x: any) => x.data().broadcaster_id))
+                .then((snap: DocumentSnapshot<DocumentData>) => snap.data()?.items)
                 .then((records: string[]) => {
                     res.json(records);
                 }).catch(err => res.status(500).send(err));
         }).catch(e => {
-            res.status(500).send(`channel ids migration incomplete`);
+            res.status(500).send(`channel ids migration incomplete: ${e.message}`);
         });
     });
 
 export default router;
 
-function collection() {
+function collection(): CollectionReference<DocumentData> {
     return admin.firestore().collection('channels');
 }
 
-async function migrateLegacy() {
+async function migrateLegacy(): Promise<void> {
+    const ref: Reference = admin.database().ref(`channel_id`);
 
-    const ref = admin.database().ref(`channel_id`);
-
-    ref.once('value')
-        .then(snapshot => {
-            snapshot.forEach(snap => {
-                collection().add({ broadcaster_id: snap.val() })
-                    .then(() => {
-                        if (snap.key) {
-                            return ref.child(snap.key).remove();
-                        }
-                        return null;
-                    });
-            });
+    return ref.once('value').then((snapshot: DataSnapshot) => {
+        const items: string[] = [];
+        snapshot.forEach((snap: DataSnapshot) => {
+            items.push(snap.val());
         });
+        return collection().doc('ids').set({ items })
+            .then(() => ref.remove());
+    });
 }

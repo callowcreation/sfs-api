@@ -6,7 +6,7 @@ import * as cors from 'cors';
 
 import channels from './routes/channels';
 import settings from './routes/settings';
-import shoutouts, { MAX_CHANNEL_SHOUTOUTS } from './routes/shoutouts';
+import shoutouts, { COLLECTIONS, MAX_CHANNEL_SHOUTOUTS } from './routes/shoutouts';
 import { broadcast } from "./helpers/extensions-pubsub";
 
 admin.initializeApp({
@@ -29,7 +29,7 @@ app.get('/', async (req: Request, res: Response) => {
 
 async function deleteExpiredPins() {
     console.log(`running deleteExpiredPins...`)
-    return admin.firestore().collection('pins')
+    return admin.firestore().collection(COLLECTIONS.PINS)
         .where('expire_at', '<=', Date.now())
         .get()
         .then(snap => {
@@ -39,7 +39,7 @@ async function deleteExpiredPins() {
             const promises: Promise<any>[] = [];
             for (let i = 0; i < snap.docs.length; i++) {
                 const data = snap.docs[i].data();
-                const doc = admin.firestore().collection('shoutouts').doc(data.broadcaster_id);
+                const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(data.broadcaster_id);
                 const promise = doc.get().then(async value => {
                     console.log({ expire_index: i, key: data.key })
 
@@ -72,9 +72,9 @@ exports.app = functions.https.onRequest(app);
 export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun(async (context) => {
     console.log('sent migrate')
 
-    const statCol = admin.firestore().collection('stats');
+    const statCol = admin.firestore().collection(COLLECTIONS.STATS);
 
-    const migrationCol = admin.firestore().collection('migration');
+    const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
 
     return migrationCol.where('migrage', '==', true).get().then(async (snap) => {
 

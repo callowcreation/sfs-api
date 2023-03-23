@@ -1,9 +1,13 @@
-import * as express from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import * as admin from 'firebase-admin';
+import { Reference } from 'firebase-admin/database';
+import { Settings } from '../interfaces/settings';
 
-const router = express.Router();
+type S = keyof Settings;
 
-const defaultSettings: any = {
+const router = Router();
+
+const defaultSettings: Settings = {
     'background-color': '#6441A5',
     'border-color': '#808080',
     'color': '#FFFFFF',
@@ -15,42 +19,42 @@ const defaultSettings: any = {
     'commands': ['so', 'shoutout'],
 };
 
-router.use((req, res, next) => {
+router.use((req: Request, res: Response, next: NextFunction) => {
     console.log(`settings ${req.url}`, '@', Date.now());
     next();
 });
 
 router.route('/')
-    .get((req, res) => {
+    .get((req: Request, res: Response) => {
         res.send('✧ ComStar ✧');
     });
 
 router.route('/:id')
-    .get((req, res) => {
+    .get((req: Request, res: Response) => {
         getChannelSettings(req.params.id)
-            .then((settings: any) => {
+            .then((settings: Settings | any) => {
 
-                if (!settings) settings = {};
+                if (!settings) settings = defaultSettings;
 
                 Object.keys(defaultSettings).forEach((key: string) => {
                     if (!Object.keys(settings).includes(key)) {
-                        settings[key] = defaultSettings[key];
+                        settings[key] = defaultSettings[key as S];
                     }
                 });
 
                 res.json(settings);
             }).catch(err => res.status(500).send(err));
     })
-    .put((req, res) => {
+    .patch((req: Request, res: Response) => {
 
         getChannelSettings(req.params.id)
-            .then((settings: any) => {
+            .then((settings: Settings | any) => {
 
-                if (!settings) settings = {};
+                if (!settings) settings = defaultSettings;
 
                 Object.keys(defaultSettings).forEach((key: string) => {
                     if (!Object.keys(settings).includes(key)) {
-                        settings[key] = defaultSettings[key];
+                        settings[key] = defaultSettings[key as S];
                     }
                 });
 
@@ -68,7 +72,7 @@ router.route('/:id')
     });
 
 router.route('/:id/behaviours')
-    .get((req, res) => {
+    .get((req: Request, res: Response) => {
         getChannelSettings(req.params.id)
             .then(settings => {
                 if (!settings.commands) settings.commands = [];
@@ -86,17 +90,17 @@ router.route('/:id/behaviours')
 
 export default router;
 
-function getChannelSettingsRef(broadcaster_id: string) {
+function getChannelSettingsRef(broadcaster_id: string): Reference {
     return admin.database().ref(`${broadcaster_id}/settings`);
 }
 
-function getChannelSettings(broadcaster_id: string) {
+function getChannelSettings(broadcaster_id: string): Promise<Settings> {
     return getChannelSettingsRef(broadcaster_id)
         .once('value')
-        .then(snap => snap.val())
+        .then(snap => snap.val() as Settings)
         .catch(err => { throw err });
 }
 
-function updateChannelSettings(broadcaster_id: string, values: any) {
+function updateChannelSettings(broadcaster_id: string, values: Settings): Promise<void> {
     return getChannelSettingsRef(broadcaster_id).update(values);
 }
