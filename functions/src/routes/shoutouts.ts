@@ -2,7 +2,6 @@ import { Router, Request, Response, NextFunction } from 'express';
 import * as admin from 'firebase-admin';
 import { broadcast } from '../helpers/extensions-pubsub';
 import { Guest } from '../interfaces/guest';
-import { Migrations } from '../interfaces/migrations';
 import PinItem, { Pinner } from '../interfaces/pin-item';
 import { verifyAuthorization } from '../middleware/verify-extension';
 
@@ -105,13 +104,17 @@ router.route('/:id')
 router.route('/:id/migration')
     .get(async (req: Request, res: Response) => {
         const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
-        const migrate: Migrations.Stats | null = await migrationCol.doc(req.params.id).get().then(value => {
-            return value.exists ? value.data() as Migrations.Stats : null;
-        });
-        if (migrate) {
-            res.json(migrate);
+        
+        const value = await migrationCol.doc(req.params.id).get();
+        if(value.exists) {
+            res.json(value.data());
         } else {
-            res.status(404).end();
+            migrateLegacy(req.params.id).then(async () => {
+                const snap = await migrationCol.doc(req.params.id).get();
+                res.json(snap.data());
+            }).catch(e => {
+                res.status(500).json({ message: `${75987197} migration incomplete`, error: e })
+            });
         }
     });
 
@@ -256,15 +259,24 @@ export async function migrateLegacy(broadcaster_id: string): Promise<number> {
     }
 
     let counter: number = 0;
-
     try {
         const statCol = admin.firestore().collection(COLLECTIONS.STATS);
-        const total: number = await migrationCol.doc(broadcaster_id).get().then(value => {
-            return value.exists ? value.data()?.total || 0 : 0;
-        });
-        counter += total;
-        await migrationCol.doc(broadcaster_id).set({ migrate: true, total: counter });
+        
+        let total: number = 0;
 
+        const value = await migrationCol.doc(broadcaster_id).get();
+        if(!value.exists || value.data()?.total === 0) {
+            for (const streamer in stats) {
+                for (const poster in stats[streamer]) {
+                    for (const key in stats[streamer][poster]) {
+                        if(!key) continue;
+                        total++;
+                    }
+                }
+            }
+            await migrationCol.doc(broadcaster_id).create({ migrate: true, total: total, counter: 0 });
+        }
+        
         for (const streamer in stats) {
             for (const poster in stats[streamer]) {
                 for (const key in stats[streamer][poster]) {
@@ -274,14 +286,14 @@ export async function migrateLegacy(broadcaster_id: string): Promise<number> {
                     await statRef.child(`${streamer}/${poster}/${key}`).remove();
                     counter++;
                     if (counter === 250) {
-                        await migrationCol.doc(broadcaster_id).update({ total: counter });
+                        await migrationCol.doc(broadcaster_id).update({ counter });
                         return counter;
                     }
                 }
             }
         }
 
-        await migrationCol.doc(broadcaster_id).update({ migrate: false, total: counter })
+        await migrationCol.doc(broadcaster_id).update({ migrate: false, counter })
             .then(() => sendMigrationComplete(broadcaster_id));
 
         console.log(`FULL Migration complete: ${broadcaster_id}`);
