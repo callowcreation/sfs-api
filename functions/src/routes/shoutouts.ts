@@ -306,5 +306,6 @@ export async function migrateLegacy(broadcaster_id: string): Promise<number> {
 
 export async function sendMigrationComplete(broadcaster_id: string) {
     await admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(broadcaster_id).delete();
-    return await broadcast({ action: 'migration' }, broadcaster_id);
+    const snap = await admin.firestore().collection(COLLECTIONS.STATS_MIGRATION).doc(broadcaster_id).get();
+    return await broadcast({ action: 'migration', ...snap.data() }, broadcaster_id);
 }
