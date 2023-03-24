@@ -104,7 +104,8 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
                                 return value.exists ? value.data() as Migrations.Stats : { counter: 0, total: 0 };
                             });
                             const currentCounter = counter + iterationCounter;
-                            await migrationCol.doc(broadcaster_id).update({ migrate: !(currentCounter === total), counter: currentCounter });
+                            await migrationCol.doc(broadcaster_id).update({ migrate: !(currentCounter === total), counter: currentCounter })
+                                .then(() => sendMigrationComplete(broadcaster_id));
                             return;
                         }
                     }
