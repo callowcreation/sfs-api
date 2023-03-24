@@ -29,6 +29,8 @@ router.route('/')
         res.send('✧ ComStar ✧');
     });
 
+// used by
+// - extension
 router.route('/:id')
     .get((req: Request, res: Response) => {
         getChannelSettings(req.params.id)
@@ -72,6 +74,8 @@ router.route('/:id')
             }).catch(err => res.status(500).send(err));
     });
 
+// user by
+// - bot
 router.route('/:id/behaviours')
     .get((req: Request, res: Response) => {
         getChannelSettings(req.params.id)

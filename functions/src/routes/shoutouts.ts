@@ -4,7 +4,7 @@ import { broadcast } from '../helpers/extensions-pubsub';
 import { Guest } from '../interfaces/guest';
 import { Migrations } from '../interfaces/migrations';
 import PinItem, { Pinner } from '../interfaces/pin-item';
-import { verifyExtension } from '../middleware/verify-extension';
+import { verifyAuthorization } from '../middleware/verify-extension';
 
 const router = Router();
 
@@ -20,7 +20,7 @@ export const COLLECTIONS = {
 router.use((req: Request, res: Response, next: NextFunction) => {
     console.log(`shoutouts ${req.url}`, '@', Date.now());
     next();
-}, verifyExtension);
+}, verifyAuthorization);
 
 router.route('/')
     .get((req: Request, res: Response) => {
@@ -46,7 +46,7 @@ router.route('/:id')
                         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
                         doc.set({ sources: records.map((x: any) => x.key) });
                         res.json(records.map((x: any) => ({ key: x.key, ...x.data })));
-                    }).catch(err => res.status(500).send(err));;
+                    }).catch(err => res.status(500).send(err));
             } else {
                 getGuests(value.data()?.sources).then(records => {
                     console.log({ records })
@@ -55,7 +55,7 @@ router.route('/:id')
             }
         });
     })
-    .put((req: Request, res: Response) => {
+    .patch((req: Request, res: Response) => {
         const guest = {
             legacy: false,
             broadcaster_id: req.params.id,
