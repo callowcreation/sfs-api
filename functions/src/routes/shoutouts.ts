@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import * as admin from 'firebase-admin';
 import { broadcast } from '../helpers/extensions-pubsub';
 import { Guest } from '../interfaces/guest';
+import { Migrations } from '../interfaces/migrations';
 import PinItem, { Pinner } from '../interfaces/pin-item';
 import { verifyAuthorization } from '../middleware/verify-extension';
 
@@ -30,6 +31,24 @@ router.route('/')
         });
     });
 
+router.route('/:id/legacy')
+    .get((req: Request, res: Response) => {
+        getLegacyChannelShoutouts(req.params.id)
+            .then((items: string[]) => {
+                const shoutouts: any[] = [];
+                return getLegacyChannelPostedBys(req.params.id)
+                    .then(posted_bys => {
+                        for (let i = 0; i < items.length; i++) {
+                            const item = items[i];
+                            shoutouts.unshift({ legacy: true, streamer_id: item, poster_id: posted_bys[item] });
+                        }
+                        res.json(shoutouts);
+                    });
+            }).catch(e => {
+                console.error(e);
+            });
+    });
+
 router.route('/:id')
     .get((req: Request, res: Response) => {
         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
@@ -48,7 +67,6 @@ router.route('/:id')
                     }).catch(err => res.status(500).send(err));
             } else {
                 getGuests(value.data()?.sources).then(records => {
-                    console.log({ records })
                     res.json(records);
                 }).catch(err => res.status(500).send(err));
             }
@@ -104,9 +122,9 @@ router.route('/:id')
 router.route('/:id/migration')
     .get(async (req: Request, res: Response) => {
         const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
-        
+
         const value = await migrationCol.doc(req.params.id).get();
-        if(value.exists) {
+        if (value.exists) {
             res.json(value.data());
         } else {
             migrateLegacy(req.params.id).then(async () => {
@@ -124,7 +142,6 @@ router.route('/:id/move-up')
         doc.get().then(value => {
             if (value.exists) {
                 const item = value.data() || { sources: [] };
-                console.log({ sources: item.sources })
                 const index = item.sources.findIndex((x: any) => x === req.body.key);
 
                 const tmp = item.sources[index - 1];
@@ -188,6 +205,24 @@ router.route('/:id/pin-item')
 
 export default router;
 
+function getLegacyChannelShoutouts(broadcaster_id: string) {
+    return admin.database().ref(`${broadcaster_id}/shoutouts`)
+        .once('value')
+        .then(snapshout => {
+            const items: string[] = [];
+            snapshout.forEach(snap => {
+                items.push(snap.val());
+            });
+            return items;
+        });
+}
+
+function getLegacyChannelPostedBys(broadcaster_id: string) {
+    return admin.database().ref(`${broadcaster_id}/posted_by`)
+        .once('value')
+        .then(snapshout => snapshout.val());
+}
+
 async function deletePin(broadcaster_id: string): Promise<any> {
     try {
         const snap = await admin.firestore().collection(COLLECTIONS.PINS)
@@ -202,7 +237,6 @@ async function deletePin(broadcaster_id: string): Promise<any> {
         const value = await doc.get();
 
         const key = snap.docs[0].data().key;
-        console.log({ key }, snap.docs[0].data().key);
         if (value.exists) {
             const item = value.data() || { sources: [] };
             item.sources.unshift(key);
@@ -214,8 +248,6 @@ async function deletePin(broadcaster_id: string): Promise<any> {
         await snap.docs[0].ref.delete();
 
         const payload = { key: snap.docs[0].id, action: 'pin-item-remove', max_channel_shoutouts: MAX_CHANNEL_SHOUTOUTS };
-
-        console.log(snap.docs[0].data().pinner_id, payload);
 
         return broadcast(payload, broadcaster_id);
     } catch (err) {
@@ -258,25 +290,25 @@ export async function migrateLegacy(broadcaster_id: string): Promise<number> {
         return -1;
     }
 
-    let counter: number = 0;
+    let { counter, total } = await migrationCol.doc(broadcaster_id).get().then(value => {
+        return value.exists ? value.data() as Migrations.Stats : { counter: 0, total: 0 };
+    });
+
     try {
         const statCol = admin.firestore().collection(COLLECTIONS.STATS);
-        
-        let total: number = 0;
 
-        const value = await migrationCol.doc(broadcaster_id).get();
-        if(!value.exists || value.data()?.total === 0) {
+        if (total === 0) {
             for (const streamer in stats) {
                 for (const poster in stats[streamer]) {
                     for (const key in stats[streamer][poster]) {
-                        if(!key) continue;
+                        if (!key) continue;
                         total++;
                     }
                 }
             }
             await migrationCol.doc(broadcaster_id).create({ migrate: true, total: total, counter: 0 });
         }
-        
+
         for (const streamer in stats) {
             for (const poster in stats[streamer]) {
                 for (const key in stats[streamer][poster]) {
@@ -286,7 +318,8 @@ export async function migrateLegacy(broadcaster_id: string): Promise<number> {
                     await statRef.child(`${streamer}/${poster}/${key}`).remove();
                     counter++;
                     if (counter === 250) {
-                        await migrationCol.doc(broadcaster_id).update({ counter });
+                        await migrationCol.doc(broadcaster_id).update({ counter })
+                            .then(() => sendMigrationComplete(broadcaster_id));
                         return counter;
                     }
                 }

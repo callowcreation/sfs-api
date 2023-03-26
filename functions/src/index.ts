@@ -90,7 +90,11 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
                     .then(() => sendMigrationComplete(broadcaster_id));
                 continue;
             }
-            let iterationCounter = 0;
+
+            let { counter, total } = await migrationCol.doc(broadcaster_id).get().then(value => {
+                return value.exists ? value.data() as Migrations.Stats : { counter: 0, total: 0 };
+            });
+
             for (const streamer in stats) {
                 for (const poster in stats[streamer]) {
                     for (const key in stats[streamer][poster]) {
@@ -98,13 +102,10 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
                         const stat = { legacy: true, broadcaster_id, streamer_id: streamer, poster_id: poster, timestamp };
                         await statCol.add(stat);
                         await statRef.child(`${streamer}/${poster}/${key}`).remove();
-                        iterationCounter++;
-                        if (iterationCounter === 250) {
-                            const { counter, total } = await migrationCol.doc(broadcaster_id).get().then(value => {
-                                return value.exists ? value.data() as Migrations.Stats : { counter: 0, total: 0 };
-                            });
-                            const currentCounter = counter + iterationCounter;
-                            await migrationCol.doc(broadcaster_id).update({ migrate: !(currentCounter === total), counter: currentCounter })
+                        counter++;
+                        if (counter === 250) {
+
+                            await migrationCol.doc(broadcaster_id).update({ migrate: !(counter === total), counter})
                                 .then(() => sendMigrationComplete(broadcaster_id));
                             return;
                         }
@@ -112,10 +113,7 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
                 }
             }
 
-            const storedCounter: number = await migrationCol.doc(broadcaster_id).get().then(value => {
-                return value.exists ? value.data()?.counter || 0 : 0;
-            });
-            await migrationCol.doc(broadcaster_id).update({ migrate: false, counter: iterationCounter + storedCounter })
+            await migrationCol.doc(broadcaster_id).update({ migrate: false, counter })
                 .then(() => sendMigrationComplete(broadcaster_id));
             console.log(`Migration complete: ${broadcaster_id}`);
         }
