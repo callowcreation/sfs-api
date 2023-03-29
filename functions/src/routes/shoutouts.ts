@@ -31,24 +31,6 @@ router.route('/')
         });
     });
 
-router.route('/:id/legacy')
-    .get((req: Request, res: Response) => {
-        getLegacyChannelShoutouts(req.params.id)
-            .then((items: string[]) => {
-                const shoutouts: any[] = [];
-                return getLegacyChannelPostedBys(req.params.id)
-                    .then(posted_bys => {
-                        for (let i = 0; i < items.length; i++) {
-                            const item = items[i];
-                            shoutouts.unshift({ legacy: true, streamer_id: item, poster_id: posted_bys[item] });
-                        }
-                        res.json(shoutouts);
-                    });
-            }).catch(e => {
-                console.error(e);
-            });
-    });
-
 router.route('/:id')
     .get((req: Request, res: Response) => {
         const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(req.params.id);
@@ -119,6 +101,18 @@ router.route('/:id')
         return res.status(204).end();
     });
 
+router.route('/:id/legacy')
+    .get((req: Request, res: Response) => {
+        guestsFromLegacyShoutouts(req.params.id)
+            .then(shoutouts => {
+                res.json(shoutouts);
+            })
+            .catch(e => {
+                console.error(e);
+                res.status(500).send(e.message);
+            });
+    });
+
 router.route('/:id/migration')
     .get(async (req: Request, res: Response) => {
         const migrationCol = admin.firestore().collection(COLLECTIONS.STATS_MIGRATION);
@@ -131,7 +125,14 @@ router.route('/:id/migration')
                 const snap = await migrationCol.doc(req.params.id).get();
                 res.json(snap.data());
             }).catch(e => {
-                res.status(500).json({ message: `${75987197} migration incomplete`, error: e })
+                hasLegacyChannelShoutouts(req.params.id)
+                    .then(exists => {
+                        res.json({ migrate: exists, counter: 0, total: 0 });
+                    })
+                    .catch(e => {
+                        console.error(e);
+                        res.status(500).json({ message: `${75987197} migration incomplete`, error: e });
+                    });
             });
         }
     });
@@ -205,7 +206,31 @@ router.route('/:id/pin-item')
 
 export default router;
 
-function getLegacyChannelShoutouts(broadcaster_id: string) {
+async function guestsFromLegacyShoutouts(broadcaster_id: string): Promise<Guest[]> {
+    return getLegacyChannelShoutouts(broadcaster_id)
+        .then((items: string[]) => {
+            const shoutouts: Guest[] = [];
+            return getLegacyChannelPostedBys(broadcaster_id)
+                .then(posted_bys => {
+                    for (let i = 0; i < items.length; i++) {
+                        const item: string = items[i];
+                        shoutouts.unshift({ legacy: true, streamer_id: item, poster_id: posted_bys[item], key: '', timestamp: Date.now() });
+                    }
+                    return shoutouts;
+                });
+        }).catch(e => {
+            console.error(e);
+            throw e;
+        });
+}
+
+async function hasLegacyChannelShoutouts(broadcaster_id: string): Promise<boolean> {
+    return admin.database().ref(`${broadcaster_id}/shoutouts`)
+        .once('value')
+        .then(snapshout => snapshout.exists());
+}
+
+async function getLegacyChannelShoutouts(broadcaster_id: string): Promise<string[]> {
     return admin.database().ref(`${broadcaster_id}/shoutouts`)
         .once('value')
         .then(snapshout => {
@@ -217,7 +242,7 @@ function getLegacyChannelShoutouts(broadcaster_id: string) {
         });
 }
 
-function getLegacyChannelPostedBys(broadcaster_id: string) {
+async function getLegacyChannelPostedBys(broadcaster_id: string): Promise<{[key: string]: string}> {
     return admin.database().ref(`${broadcaster_id}/posted_by`)
         .once('value')
         .then(snapshout => snapshout.val());
@@ -261,7 +286,7 @@ async function shoutoutsToGuests(broadcaster_id: string): Promise<Guest[]> {
     return getGuests(sources);
 }
 
-function getGuests(sources: string[]): Promise<Guest[]> {
+async function getGuests(sources: string[]): Promise<Guest[]> {
     const promises: Promise<Guest>[] = [];
     const statsCol = admin.firestore().collection(COLLECTIONS.STATS);
     for (let i = 0; i < sources.length; i++) {

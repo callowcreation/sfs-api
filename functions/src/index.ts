@@ -48,13 +48,13 @@ async function deleteExpiredPins() {
                         const item = value.data() || { sources: [] };
                         item.sources.unshift(data.key);
                         item.sources.splice(MAX_CHANNEL_SHOUTOUTS);
-                        return await doc.update(item);
+                        return doc.update(item);
                     }
                     return doc.set({ sources: [data.key] });
                 }).then(() => snap.docs[i].ref.delete());
                 promises.push(promise);
             }
-            return Promise.all(promises)
+            return Promise.all(promises);
         })
         .catch(err => {
             {
