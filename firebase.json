@@ -23,10 +23,10 @@
   ],
   "emulators": {
     "firestore": {
-      "port": 8080
+      "port": 8081
     },
     "database": {
-      "port": 9000
+      "port": 9001
     },
     "ui": {
       "enabled": true

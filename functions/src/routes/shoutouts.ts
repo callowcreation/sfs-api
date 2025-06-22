@@ -68,7 +68,7 @@ router.route('/:id')
             doc.get().then(async value => {
                 if (value.exists) {
                     const records = await shoutoutsToGuests(req.params.id);
-                    const item = value.data() || [snap.id];
+                    const item = value.data() || { sources: [snap.id] };
                     const index = records.findIndex(x => x.streamer_id === guest.streamer_id);
                     if (index !== -1) {
                         item.sources.splice(index, 1);

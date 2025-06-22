@@ -1,4 +1,6 @@
-import * as functions from "firebase-functions";
+// import * as functions from "firebase-functions";
+// const fireFunctions = require("firebase-functions/v1"); // Imports v1 functions[https://stackoverflow.com/a/79228185]
+import * as functions from "firebase-functions/v1";
 import * as admin from 'firebase-admin';
 import * as express from 'express';
 import { Request, Response, Application } from 'express';
@@ -29,20 +31,20 @@ app.get('/', async (req: Request, res: Response) => {
 });
 
 async function deleteExpiredPins() {
-    console.log(`running deleteExpiredPins...`)
+    console.log(`running deleteExpiredPins...`);
     return admin.firestore().collection(COLLECTIONS.PINS)
         .where('expire_at', '<=', Date.now())
         .get()
         .then(snap => {
 
-            if (snap.docs.length > 0) console.log(`snap.docs.length=${snap.docs.length}`)
+            if (snap.docs.length > 0) console.log(`snap.docs.length=${snap.docs.length}`);
 
             const promises: Promise<any>[] = [];
             for (let i = 0; i < snap.docs.length; i++) {
                 const data = snap.docs[i].data();
                 const doc = admin.firestore().collection(COLLECTIONS.SHOUTOUTS).doc(data.broadcaster_id);
                 const promise = doc.get().then(async value => {
-                    console.log({ expire_index: i, key: data.key })
+                    console.log({ expire_index: i, key: data.key });
 
                     if (value.exists) {
                         const item = value.data() || { sources: [] };
@@ -71,7 +73,7 @@ exports.app = functions.https.onRequest(app);
 
 
 export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun(async (context) => {
-    console.log('sent migrate')
+    console.log('sent migrate', {context})
 
     const statCol = admin.firestore().collection(COLLECTIONS.STATS);
 
@@ -79,7 +81,7 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
 
     return migrationCol.where('migrate', '==', true).get().then(async (snap) => {
 
-        if (snap.docs.length > 0) console.log(`snap.docs.length=${snap.docs.length}`)
+        if (snap.docs.length > 0) console.log(`snap.docs.length=${snap.docs.length}`);
 
         for (let i = 0; i < snap.docs.length; i++) {
             const broadcaster_id = snap.docs[i].id;
@@ -105,7 +107,7 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
                         counter++;
                         if (counter === 250) {
 
-                            await migrationCol.doc(broadcaster_id).update({ migrate: !(counter === total), counter})
+                            await migrationCol.doc(broadcaster_id).update({ migrate: !(counter === total), counter })
                                 .then(() => sendMigrationComplete(broadcaster_id));
                             return;
                         }
@@ -121,7 +123,7 @@ export const migrateLegacyStats = functions.pubsub.schedule('*/1 * * * *').onRun
 });
 
 export const monitorPinnedTTL = functions.pubsub.schedule('*/1 * * * *').onRun(context => {
-    console.log('sent delete')
+    console.log('sent delete');
     return deleteExpiredPins();
 });
 
@@ -144,7 +146,7 @@ export const pinsUpdate = functions.firestore.document('pins/{id}').onDelete((ch
         promises.push(admin.firestore().collection('stats').doc(sources[i]).get().then(x => ({ key: x.id, ...x.data() })));
     }
     return Promise.all(promises).then(payload => {
-        console.log({ payload })
+        console.log({ payload });
         return broadcast({ guests: payload }, broadcaster_id);
     });
 });*/

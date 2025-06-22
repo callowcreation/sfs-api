@@ -1,7 +1,7 @@
 # Project
 **/.vscode
 Shoutouts for Streamers.json
-**/_database/**
+**/seed/**
 # Logs
 logs
 *.log
