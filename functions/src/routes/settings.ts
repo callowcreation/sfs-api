@@ -44,7 +44,7 @@ router.route('/:id')
                     }
                 });
 
-                res.json(settings);
+                res.status(200).json({ settings });
             }).catch(err => res.status(500).send(err));
     })
     .patch((req: Request, res: Response) => {
